@@ -6,7 +6,7 @@ rust-version = "1.85"
 license = "MIT"
 description = "Safe, bounded HTTP telemetry for Axum, tracing, Log Observability, OpenTelemetry and Grafana Loki"
 readme = "README.md"
-keywords = ["axum", "telemetry", "loki", "opentelemetry", "tracing", "observability", "http", "server", "metrics", "logging", "log", "debugging"]
+keywords = ["axum", "telemetry", "opentelemetry", "loki", "tracing"]
 categories = [
     "development-tools::debugging",
     "web-programming::http-server",
