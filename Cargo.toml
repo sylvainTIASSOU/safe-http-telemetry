@@ -1,0 +1,57 @@
+[package]
+name = "safe-http-telemetry"
+version = "0.1.0-dev.0"
+edition = "2021"
+rust-version = "1.85"
+license = "MIT"
+description = "Safe, bounded HTTP telemetry for Axum, tracing, Log Observability, OpenTelemetry and Grafana Loki"
+readme = "README.md"
+keywords = ["axum", "telemetry", "loki", "opentelemetry", "tracing", "observability", "http", "server", "metrics", "logging", "log", "debugging"]
+categories = [
+    "development-tools::debugging",
+    "web-programming::http-server",
+    "network-programming::protocols::http",
+
+]
+publish = false
+
+[features]
+default = []
+axum = ["tower", "dep:axum"]
+tower = ["dep:tower"]
+tracing = ["dep:tracing", "dep:tracing-subscriber"]
+opentelemetry = [
+    "tracing",
+    "dep:opentelemetry",
+    "dep:opentelemetry_sdk",
+    "dep:tracing-opentelemetry",
+]
+body-capture = [
+    "dep:http-body-util",
+    "dep:serde",
+    "dep:serde_json",
+]
+geolocation = ["dep:maxminddb"]
+loki = []
+
+[dependencies]
+axum = { version = "=0.8.9", optional = true }
+http-body-util = { version = "0.1", optional = true }
+maxminddb = { version = "0.32.0", optional = true }
+
+opentelemetry = { version = "=0.33.1",default-features = false,features = ["trace"],optional = true}
+
+opentelemetry_sdk = {version = "=0.33.0",default-features = false,features = ["trace"],optional = true}
+
+serde = {version = "1",features = ["derive"],optional = true}
+
+serde_json = {version = "1",optional = true}
+
+tower = {version = "=0.5.2",optional = true}
+
+tracing = {version = "0.1",optional = true}
+
+tracing-opentelemetry = {version = "=0.34.0",default-features = false,optional = true}
+
+tracing-subscriber = {version = "=0.3.22",default-features = false,features = ["registry", "std"],optional = true}
+

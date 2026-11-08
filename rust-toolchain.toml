@@ -1,0 +1,5 @@
+# This file allows rustup to automatically use Rust 1.85.0 in the project.
+[toolchain]
+channel = "1.99.1"
+components = ["clippy", "rustfmt"]
+profile = "minimal"
