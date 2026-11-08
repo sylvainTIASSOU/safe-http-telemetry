@@ -7,6 +7,7 @@ use std::{collections::BTreeSet, error::Error, fmt};
 
 const KIB: usize = 1024; // 1 KiB = 1024 bytes
 const MIB: usize = 1024 * KIB; // 1 MiB = 1024 KiB = 1,048,576 bytes
+const MIN_MARKER_BYTES: usize = 11;
 
 /// Identifies the service that produces telemetry events.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -82,6 +83,18 @@ impl CaptureLimits {
             }
         }
 
+        for (name, value) in [
+            ("max_header_value_bytes", self.max_header_value_bytes),
+            ("max_string_bytes", self.max_string_bytes),
+        ] {
+            if value < MIN_MARKER_BYTES {
+                return Err(ConfigError::LimitBelowMinimum {
+                    field: name,
+                    minimum: MIN_MARKER_BYTES,
+                });
+            }
+        }
+
         if self.max_event_bytes > self.max_loki_batch_bytes {
             return Err(ConfigError::EventLimitExceedsBatchLimit {
                 max_event_bytes: self.max_event_bytes,
@@ -133,6 +146,17 @@ impl Default for RedactionConfig {
     }
 }
 
+impl RedactionConfig {
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        if self.sensitive_fields.iter().any(|field| {
+            field.trim().is_empty() || !field.chars().any(|character| character.is_alphanumeric())
+        }) {
+            return Err(ConfigError::EmptySensitiveField);
+        }
+
+        Ok(())
+    }
+}
 /// Phase-one configuration shared by capture, policies, and redaction.
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -155,14 +179,7 @@ impl TelemetryConfig {
 
         self.limits.validate()?;
 
-        if self
-            .redaction
-            .sensitive_fields
-            .iter()
-            .any(|field| field.trim().is_empty())
-        {
-            return Err(ConfigError::EmptySensitiveField);
-        }
+        self.redaction.validate()?;
         Ok(())
     }
 }
@@ -185,6 +202,10 @@ pub enum ConfigError {
         max_loki_batch_bytes: usize,
     },
     EmptySensitiveField,
+    LimitBelowMinimum {
+        field: &'static str,
+        minimum: usize,
+    },
 }
 
 impl fmt::Display for ConfigError {
@@ -210,6 +231,10 @@ impl fmt::Display for ConfigError {
             Self::EmptySensitiveField => {
                 formatter.write_str("sensitive field names must not be empty")
             }
+            Self::LimitBelowMinimum { field, minimum } => write!(
+                formatter,
+                "capture limit `{field}` must be at least {minimum} bytes"
+            ),
         }
     }
 }

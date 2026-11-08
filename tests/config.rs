@@ -90,3 +90,17 @@ fn default_sensitive_fields_cover_common_credentials() {
         );
     }
 }
+
+#[test]
+fn string_limit_must_fit_truncation_marker() {
+    let mut config = TelemetryConfig::default();
+    config.limits.max_string_bytes = 10;
+
+    assert_eq!(
+        config.validate(),
+        Err(ConfigError::LimitBelowMinimum {
+            field: "max_string_bytes",
+            minimum: 11,
+        })
+    );
+}
