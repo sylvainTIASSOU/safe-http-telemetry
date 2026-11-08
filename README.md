@@ -46,7 +46,8 @@ These features do not currently expose a stable API.
 
 ## Development
 
-The project uses Rust 1.85.0 through `rust-toolchain.toml`.
+Development uses Rust 1.99.1 through `rust-toolchain.toml`.
+The minimum supported Rust version (MSRV) is 1.85.0.
 
 Run:
 
