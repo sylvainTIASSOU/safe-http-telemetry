@@ -7,6 +7,7 @@
 
 pub mod axum_adapter;
 pub mod config;
+pub mod core;
 pub mod geolocation;
 pub mod loki;
 pub mod policy;

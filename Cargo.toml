@@ -28,8 +28,6 @@ opentelemetry = [
 ]
 body-capture = [
     "dep:http-body-util",
-    "dep:serde",
-    "dep:serde_json",
 ]
 geolocation = ["dep:maxminddb"]
 loki = []
@@ -43,9 +41,8 @@ opentelemetry = { version = "=0.33.1",default-features = false,features = ["trac
 
 opentelemetry_sdk = {version = "=0.33.0",default-features = false,features = ["trace"],optional = true}
 
-serde = {version = "1",features = ["derive"],optional = true}
-
-serde_json = {version = "1",optional = true}
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 tower = {version = "=0.5.2",optional = true}
 
