@@ -13,9 +13,9 @@ impl SecretValue {
         Self(value.into())
     }
 
-    // pub(crate) fn expose(&self) -> &str {
-    //     &self.0
-    // }
+    pub(crate) fn expose(&self) -> &str {
+        &self.0
+    }
 }
 
 impl fmt::Debug for SecretValue {
