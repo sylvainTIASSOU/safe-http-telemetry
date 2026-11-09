@@ -165,6 +165,11 @@ impl BoundedEventQueue {
         self.sender.is_closed()
     }
 
+    /// Returns the shared low-cardinality telemetry handle.
+    pub fn telemetry(&self) -> InternalTelemetry {
+        self.telemetry.clone()
+    }
+
     /// Returns an operational snapshot with no HTTP request or response data.
     pub fn stats(&self) -> QueueStats {
         let telemetry = self.telemetry.snapshot();

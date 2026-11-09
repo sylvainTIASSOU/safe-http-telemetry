@@ -61,6 +61,45 @@ impl InternalTelemetry {
         self.counters.dropped_events.fetch_add(1, Ordering::Relaxed);
     }
 
+    pub fn record_oversized_event(&self) {
+        self.counters
+            .oversized_events
+            .fetch_add(1, Ordering::Relaxed);
+        self.record_event_dropped();
+    }
+
+    pub fn record_exported_batch(&self, event_count: usize) {
+        self.counters
+            .exported_batches
+            .fetch_add(1, Ordering::Relaxed);
+        self.counters
+            .exported_events
+            .fetch_add(event_count as u64, Ordering::Relaxed);
+    }
+
+    pub fn record_failed_batch(&self, event_count: usize) {
+        self.counters.failed_batches.fetch_add(1, Ordering::Relaxed);
+        self.counters
+            .dropped_events
+            .fetch_add(event_count as u64, Ordering::Relaxed);
+    }
+
+    pub fn record_export_retry(&self) {
+        self.counters.export_retries.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_retryable_export_failure(&self) {
+        self.counters
+            .retryable_export_failures
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_permanent_export_failure(&self) {
+        self.counters
+            .permanent_export_failures
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
     /// Returns a consistent-enough operational snapshot.
     ///
     /// Relaxed atomics are intentional: these counters are observability
@@ -75,6 +114,19 @@ impl InternalTelemetry {
             accepted_events: self.counters.accepted_events.load(Ordering::Relaxed),
             rejected_events: self.counters.rejected_events.load(Ordering::Relaxed),
             dropped_events: self.counters.dropped_events.load(Ordering::Relaxed),
+            oversized_events: self.counters.oversized_events.load(Ordering::Relaxed),
+            exported_batches: self.counters.exported_batches.load(Ordering::Relaxed),
+            exported_events: self.counters.exported_events.load(Ordering::Relaxed),
+            failed_batches: self.counters.failed_batches.load(Ordering::Relaxed),
+            export_retries: self.counters.export_retries.load(Ordering::Relaxed),
+            retryable_export_failures: self
+                .counters
+                .retryable_export_failures
+                .load(Ordering::Relaxed),
+            permanent_export_failures: self
+                .counters
+                .permanent_export_failures
+                .load(Ordering::Relaxed),
         }
     }
 }
@@ -89,6 +141,13 @@ struct Counters {
     accepted_events: AtomicU64,
     rejected_events: AtomicU64,
     dropped_events: AtomicU64,
+    oversized_events: AtomicU64,
+    exported_batches: AtomicU64,
+    exported_events: AtomicU64,
+    failed_batches: AtomicU64,
+    export_retries: AtomicU64,
+    retryable_export_failures: AtomicU64,
+    permanent_export_failures: AtomicU64,
 }
 
 /// An immutable snapshot suitable for diagnostics or metrics export.
@@ -102,4 +161,11 @@ pub struct InternalTelemetrySnapshot {
     pub accepted_events: u64,
     pub rejected_events: u64,
     pub dropped_events: u64,
+    pub oversized_events: u64,
+    pub exported_batches: u64,
+    pub exported_events: u64,
+    pub failed_batches: u64,
+    pub export_retries: u64,
+    pub retryable_export_failures: u64,
+    pub permanent_export_failures: u64,
 }

@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::{config::ServiceConfig, core::event::HttpEvent};
 
 /// A Loki push request containing one or more streams.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LokiPushRequest {
     pub streams: Vec<LokiStream>,
 }
@@ -29,7 +29,7 @@ impl LokiPushRequest {
 }
 
 /// One Loki stream with low-cardinality labels and flat string metadata.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LokiStream {
     pub stream: BTreeMap<String, String>,
     pub values: Vec<[String; 2]>,

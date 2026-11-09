@@ -30,7 +30,7 @@ body-capture = [
     "dep:http-body-util",
 ]
 geolocation = ["dep:maxminddb"]
-loki = ["dep:url", "dep:reqwest"]
+loki = ["dep:url", "dep:reqwest", "dep:tokio"]
 
 
 [dependencies]
@@ -50,6 +50,8 @@ serde_json = "1"
 
 tower = {version = "=0.5.2",optional = true}
 
+tokio = { version = "=1.44.2", default-features = false, features = ["rt", "time"], optional = true }
+
 tracing = {version = "0.1",optional = true}
 
 tracing-opentelemetry = {version = "=0.34.0",default-features = false,optional = true}
@@ -60,4 +62,4 @@ url = { version = "2.5", optional = true }
 writeable = { version = "0.6.4", features = ["alloc"] }
 
 [dev-dependencies]
-tokio = { version = "=1.44.2", default-features = false, features = ["io-util", "macros", "net", "rt-multi-thread", "sync"] }
+tokio = { version = "=1.44.2", default-features = false, features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
