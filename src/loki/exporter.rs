@@ -1,0 +1,307 @@
+//! Fixed-worker asynchronous Loki exporter with bounded retries.
+//!
+//! Producers only interact with the bounded queue. Network operations, batch
+//! flushing and retry delays are performed exclusively by export workers.
+
+use std::{
+    error::Error,
+    fmt,
+    time::{SystemTime, UNIX_EPOCH},
+};
+
+use tokio::{task::JoinHandle, time::Instant};
+
+use crate::{
+    config::ServiceConfig,
+    core::{event::HttpEvent, telemetry::InternalTelemetry},
+    runtime::queue::{BoundedEventQueue, EventQueueReceiver},
+};
+
+use super::{
+    batch::{BatchPush, LokiBatchBuilder, LokiBatchError},
+    client::{LokiClient, LokiClientError},
+    config::{LokiConfig, RetryConfig},
+    payload::LokiPushRequest,
+};
+
+pub const MAX_WORKER_COUNT: usize = 64;
+
+/// Configuration for an exporter that has not started its workers yet.
+pub struct LokiExporter {
+    queue: BoundedEventQueue,
+    client: LokiClient,
+    service: ServiceConfig,
+    config: LokiConfig,
+    worker_count: usize,
+    telemetry: InternalTelemetry,
+}
+
+impl LokiExporter {
+    pub fn new(
+        config: LokiConfig,
+        service: ServiceConfig,
+        queue: BoundedEventQueue,
+        worker_count: usize,
+    ) -> Result<Self, LokiExporterError> {
+        if worker_count == 0 || worker_count > MAX_WORKER_COUNT {
+            return Err(LokiExporterError::InvalidWorkerCount);
+        }
+
+        LokiBatchBuilder::new(config.batch.clone(), service.clone())
+            .map_err(LokiExporterError::BatchConfiguration)?;
+        let client = LokiClient::new(config.clone()).map_err(LokiExporterError::Client)?;
+        let telemetry = queue.telemetry();
+
+        Ok(Self {
+            queue,
+            client,
+            service,
+            config,
+            worker_count,
+            telemetry,
+        })
+    }
+
+    /// Starts exactly the configured number of workers.
+    ///
+    /// Keep or clone the queue before calling this method to continue producing
+    /// events. The returned handle can be joined after the queue is closed.
+    pub fn start(self) -> LokiExporterHandle {
+        let Self {
+            queue,
+            client,
+            service,
+            config,
+            worker_count,
+            telemetry,
+        } = self;
+
+        let mut workers = Vec::with_capacity(worker_count);
+        for _ in 0..worker_count {
+            let receiver = queue.receiver();
+            let client = client.clone();
+            let service = service.clone();
+            let config = config.clone();
+            let telemetry = telemetry.clone();
+
+            workers.push(tokio::spawn(async move {
+                run_worker(receiver, client, service, config, telemetry).await;
+            }));
+        }
+
+        LokiExporterHandle { workers }
+    }
+}
+
+/// Join handle for the fixed worker group.
+///
+/// Deadline-based shutdown is intentionally added in the next phase. Joining
+/// an open queue waits indefinitely; close the queue before joining it.
+pub struct LokiExporterHandle {
+    workers: Vec<JoinHandle<()>>,
+}
+
+impl LokiExporterHandle {
+    pub fn worker_count(&self) -> usize {
+        self.workers.len()
+    }
+
+    pub async fn join(self) -> Result<(), LokiExporterError> {
+        for worker in self.workers {
+            worker.await.map_err(|_| LokiExporterError::WorkerJoin)?;
+        }
+        Ok(())
+    }
+}
+
+async fn run_worker(
+    receiver: EventQueueReceiver,
+    client: LokiClient,
+    service: ServiceConfig,
+    config: LokiConfig,
+    telemetry: InternalTelemetry,
+) {
+    let Ok(mut batch) = LokiBatchBuilder::new(config.batch.clone(), service) else {
+        return;
+    };
+    let mut flush_at = None;
+
+    loop {
+        if batch.is_empty() {
+            match receiver.recv().await {
+                Some(event) => {
+                    process_event(
+                        event,
+                        &client,
+                        &config,
+                        &telemetry,
+                        &mut batch,
+                        &mut flush_at,
+                    )
+                    .await;
+                }
+                None => break,
+            }
+            continue;
+        }
+
+        let deadline = flush_at.unwrap_or_else(|| Instant::now() + config.batch.flush_interval);
+        flush_at = Some(deadline);
+        let wait = deadline.saturating_duration_since(Instant::now());
+
+        match tokio::time::timeout(wait, receiver.recv()).await {
+            Ok(Some(event)) => {
+                process_event(
+                    event,
+                    &client,
+                    &config,
+                    &telemetry,
+                    &mut batch,
+                    &mut flush_at,
+                )
+                .await;
+            }
+            Ok(None) => {
+                flush_batch(&mut batch, &client, &config.retry, &telemetry).await;
+                break;
+            }
+            Err(_) => {
+                flush_batch(&mut batch, &client, &config.retry, &telemetry).await;
+                flush_at = None;
+            }
+        }
+    }
+
+    if !batch.is_empty() {
+        flush_batch(&mut batch, &client, &config.retry, &telemetry).await;
+    }
+}
+
+async fn process_event(
+    event: HttpEvent,
+    client: &LokiClient,
+    config: &LokiConfig,
+    telemetry: &InternalTelemetry,
+    batch: &mut LokiBatchBuilder,
+    flush_at: &mut Option<Instant>,
+) {
+    let timestamp_ns = unix_timestamp_ns();
+    let mut pending = Some(event);
+
+    while let Some(event) = pending.take() {
+        match batch.try_push(&event, timestamp_ns) {
+            Ok(BatchPush::Accepted) => {
+                if flush_at.is_none() {
+                    *flush_at = Some(Instant::now() + config.batch.flush_interval);
+                }
+                if batch.is_full() {
+                    flush_batch(batch, client, &config.retry, telemetry).await;
+                    *flush_at = None;
+                }
+            }
+            Ok(BatchPush::Full) => {
+                flush_batch(batch, client, &config.retry, telemetry).await;
+                *flush_at = None;
+                pending = Some(event);
+            }
+            Ok(BatchPush::Oversized) => {
+                telemetry.record_oversized_event();
+            }
+            Err(_) => {
+                telemetry.record_event_dropped();
+            }
+        }
+    }
+}
+
+async fn flush_batch(
+    builder: &mut LokiBatchBuilder,
+    client: &LokiClient,
+    retry: &RetryConfig,
+    telemetry: &InternalTelemetry,
+) {
+    let Some(batch) = builder.take() else {
+        return;
+    };
+
+    let result = push_with_retries(client, batch.payload(), retry, telemetry).await;
+    match result {
+        Ok(()) => telemetry.record_exported_batch(batch.event_count()),
+        Err(_) => telemetry.record_failed_batch(batch.event_count()),
+    }
+}
+
+async fn push_with_retries(
+    client: &LokiClient,
+    payload: &LokiPushRequest,
+    retry: &RetryConfig,
+    telemetry: &InternalTelemetry,
+) -> Result<(), LokiClientError> {
+    let mut retries = 0;
+    let mut backoff = retry.initial_backoff;
+
+    loop {
+        match client.push(payload).await {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                if error.is_retryable() {
+                    telemetry.record_retryable_export_failure();
+                } else {
+                    telemetry.record_permanent_export_failure();
+                }
+
+                if !error.is_retryable() || retries >= retry.max_retries {
+                    return Err(error);
+                }
+
+                retries += 1;
+                telemetry.record_export_retry();
+                tokio::time::sleep(backoff).await;
+                backoff = backoff.saturating_mul(2).min(retry.max_backoff);
+            }
+        }
+    }
+}
+
+fn unix_timestamp_ns() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos()
+}
+
+/// Exporter construction or worker failure without event or credential data.
+#[derive(Debug)]
+pub enum LokiExporterError {
+    InvalidWorkerCount,
+    BatchConfiguration(LokiBatchError),
+    Client(LokiClientError),
+    WorkerJoin,
+}
+
+impl fmt::Display for LokiExporterError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidWorkerCount => {
+                formatter.write_str("worker count must be between 1 and 64")
+            }
+            Self::BatchConfiguration(error) => {
+                write!(formatter, "invalid Loki batch configuration: {error}")
+            }
+            Self::Client(error) => write!(formatter, "failed to create the Loki client: {error}"),
+            Self::WorkerJoin => {
+                formatter.write_str("a Loki export worker did not terminate cleanly")
+            }
+        }
+    }
+}
+
+impl Error for LokiExporterError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::BatchConfiguration(error) => Some(error),
+            Self::Client(error) => Some(error),
+            _ => None,
+        }
+    }
+}
