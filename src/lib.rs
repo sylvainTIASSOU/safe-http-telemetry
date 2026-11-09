@@ -9,7 +9,9 @@ pub mod axum_adapter;
 pub mod config;
 pub mod core;
 pub mod geolocation;
+#[cfg(feature = "loki")]
 pub mod loki;
+
 pub mod policy;
 pub mod redaction;
 pub mod runtime;
