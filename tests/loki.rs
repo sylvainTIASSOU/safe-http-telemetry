@@ -57,14 +57,14 @@ fn valid_loki_configuration_is_accepted() {
 fn unsupported_loki_scheme_is_rejected() {
     let result = LokiConfig::new("ftp://loki.example.test/loki/api/v1/push");
 
-    assert_eq!(result, Err(LokiConfigError::UnsupportedScheme));
+    assert_eq!(result.unwrap_err(), LokiConfigError::UnsupportedScheme);
 }
 
 #[test]
 fn credentials_in_url_are_rejected() {
     let result = LokiConfig::new("https://user:fake-password@loki.example.test/loki/api/v1/push");
 
-    assert_eq!(result, Err(LokiConfigError::UrlContainsCredentials));
+    assert_eq!(result.unwrap_err(), LokiConfigError::UrlContainsCredentials);
 }
 
 #[test]

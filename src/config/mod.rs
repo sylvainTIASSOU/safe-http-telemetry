@@ -15,7 +15,7 @@ pub struct ServiceConfig {
     pub name: String,
     pub environment: String,
     pub version: String,
-    pub release: Option<String>,
+    pub region: Option<String>,
 }
 
 impl Default for ServiceConfig {
@@ -24,7 +24,7 @@ impl Default for ServiceConfig {
             name: "unknown-service".to_string(),
             environment: "development".to_string(),
             version: "0.0.0".to_string(),
-            release: None,
+            region: None,
         }
     }
 }
@@ -173,8 +173,8 @@ impl TelemetryConfig {
         validate_non_empty("environment", &self.service.environment)?;
         validate_non_empty("version", &self.service.version)?;
 
-        if let Some(region) = &self.service.release {
-            validate_non_empty("release", region)?;
+        if let Some(region) = &self.service.region {
+            validate_non_empty("region", region)?;
         }
 
         self.limits.validate()?;

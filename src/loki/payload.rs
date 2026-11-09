@@ -57,9 +57,9 @@ impl LokiStream {
             ("event_type".to_owned(), "http".to_owned()),
         ]);
 
-         if let Some(region) = &service.region {
-             labels.insert("region".to_owned(), region.clone());
-         }
+        if let Some(region) = &service.region {
+            labels.insert("region".to_owned(), region.clone());
+        }
 
         let mut metadata = BTreeMap::from([
             ("schema_version".to_owned(), event.schema_version.clone()),

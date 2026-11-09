@@ -13,9 +13,9 @@ impl SecretValue {
         Self(value.into())
     }
 
-    pub(crate) fn expose(&self) -> &str {
-        &self.0
-    }
+    // pub(crate) fn expose(&self) -> &str {
+    //     &self.0
+    // }
 }
 
 impl fmt::Debug for SecretValue {
@@ -117,7 +117,7 @@ impl LokiConfig {
             return Err(LokiConfigError::MissingHost);
         }
 
-        if self.push_url.username().is_empty() || self.push_url.password().is_some() {
+        if !self.push_url.username().is_empty() || self.push_url.password().is_some() {
             return Err(LokiConfigError::UrlContainsCredentials);
         }
 
