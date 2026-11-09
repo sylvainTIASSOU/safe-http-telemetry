@@ -45,6 +45,22 @@ impl InternalTelemetry {
             .fetch_add(1, Ordering::Relaxed);
     }
 
+    pub fn record_event_accepted(&self) {
+        self.counters
+            .accepted_events
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_event_rejected(&self) {
+        self.counters
+            .rejected_events
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_event_dropped(&self) {
+        self.counters.dropped_events.fetch_add(1, Ordering::Relaxed);
+    }
+
     /// Returns a consistent-enough operational snapshot.
     ///
     /// Relaxed atomics are intentional: these counters are observability
@@ -56,6 +72,9 @@ impl InternalTelemetry {
             omitted_bodies: self.counters.omitted_bodies.load(Ordering::Relaxed),
             parse_errors: self.counters.parse_errors.load(Ordering::Relaxed),
             rejected_by_policy: self.counters.rejected_by_policy.load(Ordering::Relaxed),
+            accepted_events: self.counters.accepted_events.load(Ordering::Relaxed),
+            rejected_events: self.counters.rejected_events.load(Ordering::Relaxed),
+            dropped_events: self.counters.dropped_events.load(Ordering::Relaxed),
         }
     }
 }
@@ -67,6 +86,9 @@ struct Counters {
     omitted_bodies: AtomicU64,
     parse_errors: AtomicU64,
     rejected_by_policy: AtomicU64,
+    accepted_events: AtomicU64,
+    rejected_events: AtomicU64,
+    dropped_events: AtomicU64,
 }
 
 /// An immutable snapshot suitable for diagnostics or metrics export.
@@ -77,4 +99,7 @@ pub struct InternalTelemetrySnapshot {
     pub omitted_bodies: u64,
     pub parse_errors: u64,
     pub rejected_by_policy: u64,
+    pub accepted_events: u64,
+    pub rejected_events: u64,
+    pub dropped_events: u64,
 }
