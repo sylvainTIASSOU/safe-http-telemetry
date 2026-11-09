@@ -30,7 +30,7 @@ body-capture = [
     "dep:http-body-util",
 ]
 geolocation = ["dep:maxminddb"]
-loki = []
+loki = ["dep:url"]
 
 [dependencies]
 axum = { version = "=0.8.9", optional = true }
@@ -52,3 +52,4 @@ tracing-opentelemetry = {version = "=0.34.0",default-features = false,optional =
 
 tracing-subscriber = {version = "=0.3.22",default-features = false,features = ["registry", "std"],optional = true}
 
+url = { version = "2.5", optional = true }
