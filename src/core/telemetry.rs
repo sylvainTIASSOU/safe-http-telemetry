@@ -23,6 +23,9 @@ impl InternalTelemetry {
         self.counters
             .observed_requests
             .fetch_add(1, Ordering::Relaxed);
+        self.counters
+            .active_requests
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn record_request_excluded(&self) {
@@ -35,18 +38,46 @@ impl InternalTelemetry {
         self.counters
             .completed_requests
             .fetch_add(1, Ordering::Relaxed);
+        self.decrement_active_requests();
     }
 
     pub fn record_request_failed(&self) {
         self.counters
             .failed_requests
             .fetch_add(1, Ordering::Relaxed);
+        self.decrement_active_requests();
     }
 
     pub fn record_request_timed_out(&self) {
         self.counters
             .timed_out_requests
             .fetch_add(1, Ordering::Relaxed);
+        self.decrement_active_requests();
+    }
+
+    pub fn record_request_cancelled(&self) {
+        self.counters
+            .cancelled_requests
+            .fetch_add(1, Ordering::Relaxed);
+        self.decrement_active_requests();
+    }
+
+    fn decrement_active_requests(&self) {
+        let mut current = self.counters.active_requests.load(Ordering::Relaxed);
+
+        loop {
+            let updated = current.saturating_sub(1);
+
+            match self.counters.active_requests.compare_exchange_weak(
+                current,
+                updated,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => break,
+                Err(actual) => current = actual,
+            }
+        }
     }
 
     pub fn record_redactions(&self, count: u64) {
@@ -221,6 +252,8 @@ impl InternalTelemetry {
 
             failed_requests: self.counters.failed_requests.load(Ordering::Relaxed),
             timed_out_requests: self.counters.timed_out_requests.load(Ordering::Relaxed),
+            active_requests: self.counters.active_requests.load(Ordering::Relaxed),
+            cancelled_requests: self.counters.cancelled_requests.load(Ordering::Relaxed),
         }
     }
 }
@@ -251,6 +284,8 @@ struct Counters {
     shutdown_abandoned_events: AtomicU64,
     failed_requests: AtomicU64,
     timed_out_requests: AtomicU64,
+    active_requests: AtomicU64,
+    cancelled_requests: AtomicU64,
 }
 
 /// An immutable snapshot suitable for diagnostics or metrics export.
@@ -280,4 +315,6 @@ pub struct InternalTelemetrySnapshot {
     pub shutdown_abandoned_events: u64,
     pub failed_requests: u64,
     pub timed_out_requests: u64,
+    pub active_requests: u64,
+    pub cancelled_requests: u64,
 }
