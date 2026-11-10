@@ -2,8 +2,9 @@
 
 //! Safe, bounded HTTP telemetry for Axum, `tracing`, OpenTelemetry and Loki.
 //!
-//! The crate is currently being scaffolded. No production functionality is
-//! implemented yet.
+//! The Tower middleware provides bounded HTTP lifecycle events, including
+//! ordinary responses, streaming, errors, timeouts and cancellation. The
+//! optional Axum adapter adds normalized matched-route integration.
 
 #[cfg(feature = "axum")]
 pub mod axum_adapter;
