@@ -73,7 +73,7 @@ async fn minimal_event_is_queued_without_altering_the_response() {
     assert_eq!(event.request.method, "POST");
     assert_eq!(event.request.route, UNMATCHED_ROUTE);
     assert_eq!(event.request.path, "/orders/42");
-    assert_eq!(event.response.status_code, 201);
+    assert_eq!(event.response.status_code, Some(201));
     assert!(event.request.query.is_empty());
     assert!(event.request.headers.is_empty());
     assert!(event.request.body.is_none());

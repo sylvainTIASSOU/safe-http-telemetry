@@ -37,6 +37,18 @@ impl InternalTelemetry {
             .fetch_add(1, Ordering::Relaxed);
     }
 
+    pub fn record_request_failed(&self) {
+        self.counters
+            .failed_requests
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_request_timed_out(&self) {
+        self.counters
+            .timed_out_requests
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
     pub fn record_redactions(&self, count: u64) {
         self.counters
             .redacted_values
@@ -206,6 +218,9 @@ impl InternalTelemetry {
                 .counters
                 .shutdown_abandoned_events
                 .load(Ordering::Relaxed),
+
+            failed_requests: self.counters.failed_requests.load(Ordering::Relaxed),
+            timed_out_requests: self.counters.timed_out_requests.load(Ordering::Relaxed),
         }
     }
 }
@@ -234,6 +249,8 @@ struct Counters {
     shutdowns: AtomicU64,
     drain_timeouts: AtomicU64,
     shutdown_abandoned_events: AtomicU64,
+    failed_requests: AtomicU64,
+    timed_out_requests: AtomicU64,
 }
 
 /// An immutable snapshot suitable for diagnostics or metrics export.
@@ -261,4 +278,6 @@ pub struct InternalTelemetrySnapshot {
     pub shutdowns: u64,
     pub drain_timeouts: u64,
     pub shutdown_abandoned_events: u64,
+    pub failed_requests: u64,
+    pub timed_out_requests: u64,
 }

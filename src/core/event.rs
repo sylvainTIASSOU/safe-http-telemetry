@@ -42,7 +42,14 @@ impl HttpEvent {
         timing: TimingInfo,
         capture: CaptureInfo,
     ) -> Self {
-        let level = LogLevel::from_status(response.status_code);
+        let level = match response.outcome {
+            Some(ResponseOutcome::Success) => LogLevel::Info,
+            Some(ResponseOutcome::ClientError) | Some(ResponseOutcome::Cancelled) => LogLevel::Warn,
+            Some(ResponseOutcome::ServerError) | Some(ResponseOutcome::Timeout) => LogLevel::Error,
+            None => response
+                .status_code
+                .map_or(LogLevel::Info, LogLevel::from_status),
+        };
 
         Self {
             schema_version: HTTP_EVENT_SCHEMA_VERSION.to_owned(),
@@ -195,7 +202,8 @@ pub struct GeolocationInfo {
 /// Response-side data allowed by the event schema.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct ResponseInfo {
-    pub status_code: u16,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status_code: Option<u16>,
 
     #[serde(default)]
     pub headers: BTreeMap<String, String>,
@@ -216,12 +224,24 @@ pub struct ResponseInfo {
 impl ResponseInfo {
     pub fn new(status_code: u16) -> Self {
         Self {
-            status_code,
+            status_code: Some(status_code),
             headers: BTreeMap::new(),
             body: None,
             content_type: None,
             content_length: None,
             outcome: Some(ResponseOutcome::from_status(status_code)),
+        }
+    }
+
+    /// Creates a terminal response state, possibly without HTTP headers.
+    pub fn terminal(status_code: Option<u16>, outcome: ResponseOutcome) -> Self {
+        Self {
+            status_code,
+            headers: BTreeMap::new(),
+            body: None,
+            content_type: None,
+            content_length: None,
+            outcome: Some(outcome),
         }
     }
 }

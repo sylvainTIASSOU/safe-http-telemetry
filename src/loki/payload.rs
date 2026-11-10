@@ -66,11 +66,11 @@ impl LokiStream {
             ("request_id".to_owned(), event.request_id.clone()),
             ("http_method".to_owned(), event.request.method.clone()),
             ("route".to_owned(), event.request.route.clone()),
-            (
-                "status_code".to_owned(),
-                event.response.status_code.to_string(),
-            ),
         ]);
+
+        if let Some(status_code) = event.response.status_code {
+            metadata.insert("status_code".to_owned(), status_code.to_string());
+        }
 
         if let Some(trace_id) = &event.trace_id {
             metadata.insert("trace_id".to_owned(), trace_id.clone());

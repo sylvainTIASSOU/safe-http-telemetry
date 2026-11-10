@@ -59,7 +59,7 @@ async fn ordinary_body_is_unchanged_and_event_waits_for_completion() {
     assert_eq!(collected.to_bytes(), Bytes::from_static(b"ordinary-body"));
 
     let event = receiver.try_recv().expect("event after body completion");
-    assert_eq!(event.response.status_code, 201);
+    assert_eq!(event.response.status_code, Some(201));
     assert!(event.timing.time_to_first_byte_ms.is_some());
     assert!(event.timing.body_duration_ms.is_some());
     assert!(receiver.try_recv().is_none());

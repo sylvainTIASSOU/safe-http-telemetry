@@ -6,6 +6,7 @@
 
 mod body;
 mod config;
+mod error;
 mod request_id;
 
 use std::{
@@ -23,7 +24,10 @@ use tracing::{field, Level as TracingLevel, Span};
 use crate::{
     config::ConfigError,
     core::{
-        event::{CaptureInfo, HttpEvent, LogLevel, RequestInfo, ResponseInfo, TimingInfo},
+        event::{
+            CaptureInfo, HttpEvent, LogLevel, RequestInfo, ResponseInfo, ResponseOutcome,
+            TimingInfo,
+        },
         telemetry::InternalTelemetry,
     },
     policy::RoutePolicySet,
@@ -33,7 +37,7 @@ use crate::{
 
 pub use body::ObservedBody;
 pub use config::MiddlewareConfig;
-
+pub use error::{ErrorClassifier, RequestFailure, ServerErrorClassifier};
 /// Stable route value used when the HTTP framework exposes no matched route.
 pub const UNMATCHED_ROUTE: &str = "unmatched";
 
@@ -54,14 +58,15 @@ impl RouteResolver for UnmatchedRoute {
 
 /// Configures minimal HTTP telemetry for a Tower service.
 #[derive(Clone)]
-pub struct HttpTelemetryLayer<R = UnmatchedRoute> {
+pub struct HttpTelemetryLayer<R = UnmatchedRoute, C = ServerErrorClassifier> {
     queue: BoundedEventQueue,
     policies: RoutePolicySet,
     config: MiddlewareConfig,
     route_resolver: R,
+    error_classifier: C,
 }
 
-impl HttpTelemetryLayer<UnmatchedRoute> {
+impl HttpTelemetryLayer<UnmatchedRoute, ServerErrorClassifier> {
     pub fn new(
         queue: BoundedEventQueue,
         policies: RoutePolicySet,
@@ -71,7 +76,7 @@ impl HttpTelemetryLayer<UnmatchedRoute> {
     }
 }
 
-impl<R: RouteResolver> HttpTelemetryLayer<R> {
+impl<R: RouteResolver> HttpTelemetryLayer<R, ServerErrorClassifier> {
     pub fn with_route_resolver(
         queue: BoundedEventQueue,
         policies: RoutePolicySet,
@@ -85,12 +90,24 @@ impl<R: RouteResolver> HttpTelemetryLayer<R> {
             policies,
             config,
             route_resolver,
+            error_classifier: ServerErrorClassifier,
         })
+    }
+
+    /// Installs a typed error classifier, for example for a timeout layer.
+    pub fn with_error_classifier<C>(self, error_classifier: C) -> HttpTelemetryLayer<R, C> {
+        HttpTelemetryLayer {
+            queue: self.queue,
+            policies: self.policies,
+            config: self.config,
+            route_resolver: self.route_resolver,
+            error_classifier,
+        }
     }
 }
 
-impl<S, R: Clone> Layer<S> for HttpTelemetryLayer<R> {
-    type Service = HttpTelemetry<S, R>;
+impl<S, R: Clone, C: Clone> Layer<S> for HttpTelemetryLayer<R, C> {
+    type Service = HttpTelemetry<S, R, C>;
 
     fn layer(&self, inner: S) -> Self::Service {
         HttpTelemetry {
@@ -99,6 +116,7 @@ impl<S, R: Clone> Layer<S> for HttpTelemetryLayer<R> {
             policies: self.policies.clone(),
             config: self.config.clone(),
             route_resolver: self.route_resolver.clone(),
+            error_classifier: self.error_classifier.clone(),
             telemetry: self.queue.telemetry(),
         }
     }
@@ -106,24 +124,26 @@ impl<S, R: Clone> Layer<S> for HttpTelemetryLayer<R> {
 
 /// Tower service produced by [`HttpTelemetryLayer`].
 #[derive(Clone)]
-pub struct HttpTelemetry<S, R = UnmatchedRoute> {
+pub struct HttpTelemetry<S, R = UnmatchedRoute, C = ServerErrorClassifier> {
     inner: S,
     queue: BoundedEventQueue,
     policies: RoutePolicySet,
     config: MiddlewareConfig,
     route_resolver: R,
+    error_classifier: C,
     telemetry: InternalTelemetry,
 }
 
-impl<S, R, RequestBody, ResponseBody> Service<Request<RequestBody>> for HttpTelemetry<S, R>
+impl<S, R, C, RequestBody, ResponseBody> Service<Request<RequestBody>> for HttpTelemetry<S, R, C>
 where
     S: Service<Request<RequestBody>, Response = Response<ResponseBody>>,
     R: RouteResolver,
     ResponseBody: http_body::Body,
+    C: ErrorClassifier<S::Error>,
 {
     type Response = Response<ObservedBody<ResponseBody>>;
     type Error = S::Error;
-    type Future = HttpTelemetryResponseFuture<S::Future>;
+    type Future = HttpTelemetryResponseFuture<S::Future, C>;
 
     fn poll_ready(&mut self, context: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.inner.poll_ready(context)
@@ -136,7 +156,10 @@ where
 
         if policy.excluded {
             self.telemetry.record_request_excluded();
-            return HttpTelemetryResponseFuture::excluded(self.inner.call(request));
+            return HttpTelemetryResponseFuture::excluded(
+                self.inner.call(request),
+                self.error_classifier.clone(),
+            );
         }
 
         self.telemetry.record_request_started();
@@ -174,42 +197,46 @@ where
             telemetry: self.telemetry.clone(),
         };
 
-        HttpTelemetryResponseFuture::observed(inner, context, span)
+        HttpTelemetryResponseFuture::observed(inner, context, span, self.error_classifier.clone())
     }
 }
 
 pin_project! {
     /// Response future carrying no public HTTP-data `Debug` implementation.
-    pub struct HttpTelemetryResponseFuture<F> {
+    pub struct HttpTelemetryResponseFuture<F, C> {
         #[pin]
         inner: F,
         context: Option<RequestContext>,
         span: Span,
+        error_classifier: C,
     }
 }
 
-impl<F> HttpTelemetryResponseFuture<F> {
-    fn observed(inner: F, context: RequestContext, span: Span) -> Self {
+impl<F, C> HttpTelemetryResponseFuture<F, C> {
+    fn observed(inner: F, context: RequestContext, span: Span, error_classifier: C) -> Self {
         Self {
             inner,
             context: Some(context),
             span,
+            error_classifier,
         }
     }
 
-    fn excluded(inner: F) -> Self {
+    fn excluded(inner: F, error_classifier: C) -> Self {
         Self {
             inner,
             context: None,
             span: Span::none(),
+            error_classifier,
         }
     }
 }
 
-impl<F, Body, Error> Future for HttpTelemetryResponseFuture<F>
+impl<F, Body, Error, C> Future for HttpTelemetryResponseFuture<F, C>
 where
     F: Future<Output = Result<Response<Body>, Error>>,
     Body: http_body::Body,
+    C: ErrorClassifier<Error>,
 {
     type Output = Result<Response<ObservedBody<Body>>, Error>;
 
@@ -256,8 +283,11 @@ where
                 Poll::Ready(Ok(response))
             }
             Poll::Ready(Err(error)) => {
-                // Error-event construction is added in increment 3c.
-                this.context.take();
+                if let Some(request) = this.context.take() {
+                    let failure = this.error_classifier.classify(&error);
+                    request.complete_failure(&*this.span, failure);
+                }
+
                 Poll::Ready(Err(error))
             }
         }
@@ -289,73 +319,127 @@ impl RequestContext {
         time_to_first_byte_ms: f64,
         body_duration_ms: f64,
     ) {
-        let duration_ms = self.started_at.elapsed().as_secs_f64() * 1_000.0;
-        let request = RequestInfo::new(self.method, self.route, self.path);
-        let response = ResponseInfo::new(status.as_u16());
-        let mut timing = TimingInfo::new(duration_ms);
-        timing.time_to_first_byte_ms = Some(time_to_first_byte_ms);
-        timing.body_duration_ms = Some(body_duration_ms);
+        let event = self.build_event(
+            Some(status.as_u16()),
+            ResponseOutcome::from_status(status.as_u16()),
+            Some(time_to_first_byte_ms),
+            Some(body_duration_ms),
+        );
 
-        let event = HttpEvent::new(
-            self.request_id,
+        self.telemetry.record_request_completed();
+        emit_terminal_event(span, event, &self.queue);
+    }
+
+    fn complete_failure(self, span: &Span, failure: RequestFailure) {
+        let outcome = match failure {
+            RequestFailure::ServerError => ResponseOutcome::ServerError,
+            RequestFailure::Timeout => ResponseOutcome::Timeout,
+        };
+        let event = self.build_event(None, outcome, None, None);
+
+        match failure {
+            RequestFailure::ServerError => self.telemetry.record_request_failed(),
+            RequestFailure::Timeout => self.telemetry.record_request_timed_out(),
+        }
+
+        emit_terminal_event(span, event, &self.queue);
+    }
+
+    pub(crate) fn fail_body(
+        self,
+        span: &Span,
+        status: StatusCode,
+        time_to_first_byte_ms: f64,
+        body_duration_ms: f64,
+    ) {
+        let event = self.build_event(
+            Some(status.as_u16()),
+            ResponseOutcome::ServerError,
+            Some(time_to_first_byte_ms),
+            Some(body_duration_ms),
+        );
+
+        self.telemetry.record_request_failed();
+        emit_terminal_event(span, event, &self.queue);
+    }
+
+    fn build_event(
+        &self,
+        status_code: Option<u16>,
+        outcome: ResponseOutcome,
+        time_to_first_byte_ms: Option<f64>,
+        body_duration_ms: Option<f64>,
+    ) -> HttpEvent {
+        let request = RequestInfo::new(self.method.clone(), self.route.clone(), self.path.clone());
+        let response = ResponseInfo::terminal(status_code, outcome);
+        let mut timing = TimingInfo::new(self.started_at.elapsed().as_secs_f64() * 1_000.0);
+        timing.time_to_first_byte_ms = time_to_first_byte_ms;
+        timing.body_duration_ms = body_duration_ms;
+
+        HttpEvent::new(
+            self.request_id.clone(),
             request,
             response,
             timing,
             CaptureInfo::default(),
-        );
-
-        let outcome = outcome_name(&event);
-        span.record("status_code", u64::from(status.as_u16()));
-        span.record("duration_ms", duration_ms);
-        span.record("outcome", outcome);
-
-        match event.level {
-            LogLevel::Error => {
-                tracing::event!(
-                    parent: span,
-                    TracingLevel::ERROR,
-                    request_id = %event.request_id,
-                    method = %event.request.method,
-                    route = %event.request.route,
-                    status_code = status.as_u16(),
-                    duration_ms,
-                    outcome,
-                    "HTTP request completed"
-                );
-            }
-            LogLevel::Warn => {
-                tracing::event!(
-                    parent: span,
-                    TracingLevel::WARN,
-                    request_id = %event.request_id,
-                    method = %event.request.method,
-                    route = %event.request.route,
-                    status_code = status.as_u16(),
-                    duration_ms,
-                    outcome,
-                    "HTTP request completed"
-                );
-            }
-            _ => {
-                tracing::event!(
-                    parent: span,
-                    TracingLevel::INFO,
-                    request_id = %event.request_id,
-                    method = %event.request.method,
-                    route = %event.request.route,
-                    status_code = status.as_u16(),
-                    duration_ms,
-                    outcome,
-                    "HTTP request completed"
-                );
-            }
-        }
-
-        self.telemetry.record_request_completed();
-
-        // Saturation and queue closure never change the application response.
-        let _ = self.queue.try_push(event);
+        )
     }
+}
+
+fn emit_terminal_event(span: &Span, event: HttpEvent, queue: &BoundedEventQueue) {
+    let status_code = event.response.status_code;
+    let duration_ms = event.timing.duration_ms;
+    let outcome = outcome_name(&event);
+
+    if let Some(status_code) = status_code {
+        span.record("status_code", u64::from(status_code));
+    }
+    span.record("duration_ms", duration_ms);
+    span.record("outcome", outcome);
+
+    match event.level {
+        LogLevel::Error => {
+            tracing::event!(
+                parent: span,
+                TracingLevel::ERROR,
+                request_id = %event.request_id,
+                method = %event.request.method,
+                route = %event.request.route,
+                status_code = field::debug(status_code),
+                duration_ms,
+                outcome,
+                "HTTP request completed"
+            );
+        }
+        LogLevel::Warn => {
+            tracing::event!(
+                parent: span,
+                TracingLevel::WARN,
+                request_id = %event.request_id,
+                method = %event.request.method,
+                route = %event.request.route,
+                status_code = field::debug(status_code),
+                duration_ms,
+                outcome,
+                "HTTP request completed"
+            );
+        }
+        _ => {
+            tracing::event!(
+                parent: span,
+                TracingLevel::INFO,
+                request_id = %event.request_id,
+                method = %event.request.method,
+                route = %event.request.route,
+                status_code = field::debug(status_code),
+                duration_ms,
+                outcome,
+                "HTTP request completed"
+            );
+        }
+    }
+
+    let _ = queue.try_push(event);
 }
 
 fn outcome_name(event: &HttpEvent) -> &'static str {
