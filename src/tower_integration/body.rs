@@ -95,7 +95,12 @@ where
                 Poll::Ready(Some(Ok(frame)))
             }
             Poll::Ready(Some(Err(error))) => {
-                // Error terminalization is added in increment 3c.
+                *this.finished = true;
+
+                if let Some(completion) = this.completion.take() {
+                    completion.fail();
+                }
+
                 Poll::Ready(Some(Err(error)))
             }
             Poll::Ready(None) => {
@@ -127,6 +132,17 @@ impl ResponseCompletion {
         let body_duration_ms = self.response_received_at.elapsed().as_secs_f64() * 1_000.0;
 
         self.request.complete_body(
+            &self.span,
+            self.status,
+            self.time_to_first_byte_ms,
+            body_duration_ms,
+        );
+    }
+
+    fn fail(self) {
+        let body_duration_ms = self.response_received_at.elapsed().as_secs_f64() * 1_000.0;
+
+        self.request.fail_body(
             &self.span,
             self.status,
             self.time_to_first_byte_ms,
