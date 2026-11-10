@@ -2,7 +2,9 @@
 
 Safe, bounded HTTP telemetry for Axum, Tower, `tracing`, OpenTelemetry and Grafana Loki.
 
-&gt; **Status:** project scaffolding. The crate is not published and does not provide production functionality yet.
+> **Status:** development release. The crate is not published. Tower and Axum
+> HTTP lifecycle middleware, bounded queues and the Loki exporter are being
+> validated incrementally; the public API is not stable yet.
 
 ## Project decisions
 
@@ -12,6 +14,12 @@ Safe, bounded HTTP telemetry for Axum, Tower, `tracing`, OpenTelemetry and Grafa
 - Initial HTTP target: Axum through Tower
 - Log format: versioned JSON
 - Geolocation: local MMDB database without synchronous external requests
+
+## Axum integration
+
+The `axum` feature provides normalized `MatchedPath` routes, bounded event
+submission and response preservation for ordinary and streaming bodies.
+See `docs/axum.md` for layer placement, timeout handling and shutdown order.
 
 ## Project structure
 
