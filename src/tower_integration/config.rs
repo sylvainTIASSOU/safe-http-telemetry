@@ -13,4 +13,3 @@ pub struct MiddlewareConfig {
     /// Disabled by default because request IDs are client-controlled input.
     pub trust_incoming_request_id: bool,
 }
-
