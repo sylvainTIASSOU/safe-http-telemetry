@@ -19,6 +19,24 @@ impl InternalTelemetry {
         Self::default()
     }
 
+    pub fn record_request_started(&self) {
+        self.counters
+            .observed_requests
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_request_excluded(&self) {
+        self.counters
+            .excluded_requests
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_request_completed(&self) {
+        self.counters
+            .completed_requests
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
     pub fn record_redactions(&self, count: u64) {
         self.counters
             .redacted_values
@@ -157,6 +175,9 @@ impl InternalTelemetry {
     /// signals, not synchronization primitives or exact financial balances.
     pub fn snapshot(&self) -> InternalTelemetrySnapshot {
         InternalTelemetrySnapshot {
+            observed_requests: self.counters.observed_requests.load(Ordering::Relaxed),
+            excluded_requests: self.counters.excluded_requests.load(Ordering::Relaxed),
+            completed_requests: self.counters.completed_requests.load(Ordering::Relaxed),
             redacted_values: self.counters.redacted_values.load(Ordering::Relaxed),
             truncated_values: self.counters.truncated_values.load(Ordering::Relaxed),
             omitted_bodies: self.counters.omitted_bodies.load(Ordering::Relaxed),
@@ -191,6 +212,9 @@ impl InternalTelemetry {
 
 #[derive(Debug, Default)]
 struct Counters {
+    observed_requests: AtomicU64,
+    excluded_requests: AtomicU64,
+    completed_requests: AtomicU64,
     redacted_values: AtomicU64,
     truncated_values: AtomicU64,
     omitted_bodies: AtomicU64,
@@ -215,6 +239,9 @@ struct Counters {
 /// An immutable snapshot suitable for diagnostics or metrics export.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct InternalTelemetrySnapshot {
+    pub observed_requests: u64,
+    pub excluded_requests: u64,
+    pub completed_requests: u64,
     pub redacted_values: u64,
     pub truncated_values: u64,
     pub omitted_bodies: u64,
