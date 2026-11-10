@@ -6,7 +6,7 @@
 //! on the application request path.
 
 mod body;
-mod config;
+pub mod config;
 mod error;
 mod request_id;
 

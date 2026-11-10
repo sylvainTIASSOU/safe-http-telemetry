@@ -21,6 +21,9 @@ The `axum` feature provides normalized `MatchedPath` routes, bounded event
 submission and response preservation for ordinary and streaming bodies.
 See `docs/axum.md` for layer placement, timeout handling and shutdown order.
 
+```markdown
+- [Executable Axum examples and real-Loki end-to-end validation](examples/README.md)
+
 ## Project structure
 
 - `src/config`: configuration and validation
