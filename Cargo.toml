@@ -65,14 +65,30 @@ tracing = {version = "0.1",optional = true}
 
 tracing-opentelemetry = {version = "=0.34.0",default-features = false,optional = true}
 
-tracing-subscriber = {version = "=0.3.22",default-features = false,features = ["registry", "std"],optional = true}
+tracing-subscriber = { version = "=0.3.22", default-features = false, features = ["registry", "std", "fmt"], optional = true }
 
 url = { version = "2.5", optional = true }
 writeable = { version = "0.6.4", features = ["alloc"] }
 
 [dev-dependencies]
-tokio = { version = "=1.44.2", default-features = false, features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
+tokio = { version = "=1.44.2", default-features = false, features = ["io-util", "macros", "net", "signal", "rt-multi-thread", "sync", "time"] }
 tower = { version = "=0.5.2", features = ["util"] }
 bytes = "=1.12.1"
 futures-util = "=0.3.34"
 http-body-util = "=0.1.5"
+
+
+[[example]]
+name = "minimal_axum"
+path = "examples/minimal_axum.rs"
+required-features = ["axum", "tracing"]
+
+[[example]]
+name = "axum_loki"
+path = "examples/axum_loki.rs"
+required-features = ["axum", "loki", "tracing"]
+
+[[test]]
+name = "loki_http_e2e"
+path = "tests/loki_http_e2e.rs"
+required-features = ["axum", "loki"]

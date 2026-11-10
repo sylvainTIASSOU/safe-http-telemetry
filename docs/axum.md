@@ -91,3 +91,15 @@ respect the configured drain deadline and inspect its report.
 Do not spawn one exporter per request. The exporter owns one fixed worker
 group for the application lifetime.
 Current capture boundary
+
+
+## Executable examples and real Loki
+
+The repository includes a minimal Axum server and an Axum server connected to a
+real local Loki instance. See [the examples guide](../examples/README.md) for
+startup, request, query, graceful shutdown and cleanup commands.
+
+The real-Loki HTTP end-to-end test is ignored by default. It starts its own Axum
+server, sends one request in `Minimal` mode, drains the exporter with a deadline
+and verifies the exported event and its controlled labels. Normal CI therefore
+remains independent from Docker and external services.
