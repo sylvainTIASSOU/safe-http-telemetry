@@ -68,6 +68,24 @@ impl Default for RetryConfig {
     }
 }
 
+/// Graceful shutdown behavior for the loki export pipeline
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ShutdownConfig {
+    /// Whether workers may drain queued events before shutdown completes.
+    pub drain: bool,
+    /// Maximum time allowed for draining workers before they are aborted.
+    pub deadline: Duration,
+}
+
+impl Default for ShutdownConfig {
+    fn default() -> Self {
+        Self {
+            drain: true,
+            deadline: Duration::from_secs(5),
+        }
+    }
+}
+
 /// Complete configuration for one Loki push endpoint.
 #[derive(Clone)]
 pub struct LokiConfig {
@@ -79,6 +97,7 @@ pub struct LokiConfig {
     pub batch: BatchConfig,
     pub request_timeout: Duration,
     pub retry: RetryConfig,
+    pub shutdown: ShutdownConfig,
 }
 
 impl LokiConfig {
@@ -92,6 +111,7 @@ impl LokiConfig {
             batch: BatchConfig::default(),
             request_timeout: Duration::from_secs(5),
             retry: RetryConfig::default(),
+            shutdown: ShutdownConfig::default(),
         };
         config.validate()?;
         Ok(config)
@@ -155,6 +175,7 @@ impl LokiConfig {
             ("batch.flush_interval", self.batch.flush_interval),
             ("retry.initial_backoff", self.retry.initial_backoff),
             ("retry.max_backoff", self.retry.max_backoff),
+            ("shutdown.deadline", self.shutdown.deadline),
         ] {
             if value.is_zero() {
                 return Err(LokiConfigError::ZeroValue(name));
@@ -179,6 +200,7 @@ impl fmt::Debug for LokiConfig {
             .field("batch", &self.batch)
             .field("request_timeout", &self.request_timeout)
             .field("retry", &self.retry)
+            .field("shutdown", &self.shutdown)
             .finish()
     }
 }

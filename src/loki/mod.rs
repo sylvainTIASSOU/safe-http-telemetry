@@ -1,7 +1,7 @@
 //! Grafana Loki configuration and JSON push payloads.
 //!
-//! This module contains the asynchronous HTTP client, bounded batching and
-//! fixed-worker export pipeline. Deadline-based shutdown is added separately.
+//! This module contains the asynchronous HTTP client, bounded batching,
+//! fixed-worker export pipeline and deadline-based shutdown.
 
 pub mod batch;
 pub mod client;

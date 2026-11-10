@@ -9,7 +9,10 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use tokio::{task::JoinHandle, time::Instant};
+use tokio::{
+    task::JoinHandle,
+    time::{timeout, Instant},
+};
 
 use crate::{
     config::ServiceConfig,
@@ -20,7 +23,7 @@ use crate::{
 use super::{
     batch::{BatchPush, LokiBatchBuilder, LokiBatchError},
     client::{LokiClient, LokiClientError},
-    config::{LokiConfig, RetryConfig},
+    config::{LokiConfig, RetryConfig, ShutdownConfig},
     payload::LokiPushRequest,
 };
 
@@ -89,16 +92,42 @@ impl LokiExporter {
             }));
         }
 
-        LokiExporterHandle { workers }
+        LokiExporterHandle {
+            workers,
+            queue,
+            shutdown: config.shutdown,
+            telemetry,
+        }
     }
 }
 
-/// Join handle for the fixed worker group.
-///
-/// Deadline-based shutdown is intentionally added in the next phase. Joining
-/// an open queue waits indefinitely; close the queue before joining it.
+/// Final state of a shutdown operation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShutdownOutcome {
+    /// All workers drained their inputs and terminated before the deadline.
+    Drained,
+    /// Draining was disabled and workers were aborted.
+    Aborted,
+    /// The deadline expired and remaining work was abandoned.
+    TimedOut,
+    /// At least one worker failed while the queue was being drained.
+    WorkerFailure,
+}
+
+/// Operational shutdown result containing no HTTP event data.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ShutdownReport {
+    pub outcome: ShutdownOutcome,
+    pub abandoned_events: usize,
+    pub worker_failures: usize,
+}
+
+/// Join and shutdown handle for the fixed worker group.
 pub struct LokiExporterHandle {
     workers: Vec<JoinHandle<()>>,
+    queue: BoundedEventQueue,
+    shutdown: ShutdownConfig,
+    telemetry: InternalTelemetry,
 }
 
 impl LokiExporterHandle {
@@ -106,11 +135,78 @@ impl LokiExporterHandle {
         self.workers.len()
     }
 
-    pub async fn join(self) -> Result<(), LokiExporterError> {
-        for worker in self.workers {
-            worker.await.map_err(|_| LokiExporterError::WorkerJoin)?;
+    /// Waits for workers after the caller closes the queue.
+    ///
+    /// Prefer [`LokiExporterHandle::shutdown`] in production, because this
+    /// method has no deadline and waits indefinitely while the queue is open.
+    pub async fn join(mut self) -> Result<(), LokiExporterError> {
+        if join_workers(&mut self.workers).await == 0 {
+            Ok(())
+        } else {
+            Err(LokiExporterError::WorkerJoin)
         }
-        Ok(())
+    }
+
+    /// Closes producers, drains within the configured deadline, and accounts
+    /// for queued or worker-owned events that could not be exported.
+    pub async fn shutdown(mut self) -> ShutdownReport {
+        self.queue.close();
+
+        let (outcome, worker_failures) = if self.shutdown.drain {
+            match timeout(self.shutdown.deadline, join_workers(&mut self.workers)).await {
+                Ok(0) => (ShutdownOutcome::Drained, 0),
+                Ok(failures) => (ShutdownOutcome::WorkerFailure, failures),
+                Err(_) => {
+                    abort_workers(&mut self.workers).await;
+                    (ShutdownOutcome::TimedOut, 0)
+                }
+            }
+        } else {
+            abort_workers(&mut self.workers).await;
+            (ShutdownOutcome::Aborted, 0)
+        };
+
+        let mut abandoned_events = 0_usize;
+        let receiver = self.queue.receiver();
+        while receiver.try_recv().is_some() {
+            abandoned_events = abandoned_events.saturating_add(1);
+        }
+
+        let pending = self.telemetry.snapshot().pending_export_events;
+        abandoned_events =
+            abandoned_events.saturating_add(usize::try_from(pending).unwrap_or(usize::MAX));
+
+        self.telemetry.record_shutdown(
+            matches!(outcome, ShutdownOutcome::TimedOut),
+            abandoned_events,
+        );
+
+        ShutdownReport {
+            outcome,
+            abandoned_events,
+            worker_failures,
+        }
+    }
+}
+
+async fn join_workers(workers: &mut [JoinHandle<()>]) -> usize {
+    let mut failures = 0;
+    for worker in workers {
+        if worker.await.is_err() {
+            failures += 1;
+        }
+    }
+    failures
+}
+
+async fn abort_workers(workers: &mut [JoinHandle<()>]) {
+    for worker in workers {
+        if worker.is_finished() {
+            continue;
+        }
+
+        worker.abort();
+        let _ = worker.await;
     }
 }
 
@@ -130,6 +226,7 @@ async fn run_worker(
         if batch.is_empty() {
             match receiver.recv().await {
                 Some(event) => {
+                    telemetry.record_event_dequeued();
                     process_event(
                         event,
                         &client,
@@ -151,6 +248,7 @@ async fn run_worker(
 
         match tokio::time::timeout(wait, receiver.recv()).await {
             Ok(Some(event)) => {
+                telemetry.record_event_dequeued();
                 process_event(
                     event,
                     &client,
@@ -208,7 +306,7 @@ async fn process_event(
                 telemetry.record_oversized_event();
             }
             Err(_) => {
-                telemetry.record_event_dropped();
+                telemetry.record_event_processing_failure();
             }
         }
     }

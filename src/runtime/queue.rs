@@ -203,4 +203,9 @@ impl EventQueueReceiver {
     pub async fn recv(&self) -> Option<HttpEvent> {
         self.receiver.recv().await.ok()
     }
+
+    /// Returns one immediately available event, or `None` when empty or closed.
+    pub fn try_recv(&self) -> Option<HttpEvent> {
+        self.receiver.try_recv().ok()
+    }
 }

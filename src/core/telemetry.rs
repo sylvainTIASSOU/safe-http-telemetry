@@ -61,11 +61,23 @@ impl InternalTelemetry {
         self.counters.dropped_events.fetch_add(1, Ordering::Relaxed);
     }
 
+    pub fn record_event_dequeued(&self) {
+        self.counters
+            .pending_export_events
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_event_processing_failure(&self) {
+        self.record_event_dropped();
+        self.complete_pending_events(1);
+    }
+
     pub fn record_oversized_event(&self) {
         self.counters
             .oversized_events
             .fetch_add(1, Ordering::Relaxed);
         self.record_event_dropped();
+        self.complete_pending_events(1);
     }
 
     pub fn record_exported_batch(&self, event_count: usize) {
@@ -75,6 +87,7 @@ impl InternalTelemetry {
         self.counters
             .exported_events
             .fetch_add(event_count as u64, Ordering::Relaxed);
+        self.complete_pending_events(event_count);
     }
 
     pub fn record_failed_batch(&self, event_count: usize) {
@@ -82,6 +95,7 @@ impl InternalTelemetry {
         self.counters
             .dropped_events
             .fetch_add(event_count as u64, Ordering::Relaxed);
+        self.complete_pending_events(event_count);
     }
 
     pub fn record_export_retry(&self) {
@@ -98,6 +112,33 @@ impl InternalTelemetry {
         self.counters
             .permanent_export_failures
             .fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_shutdown(&self, timed_out: bool, abandoned_events: usize) {
+        self.counters.shutdowns.fetch_add(1, Ordering::Relaxed);
+        if timed_out {
+            self.counters.drain_timeouts.fetch_add(1, Ordering::Relaxed);
+        }
+
+        let abandoned_events = abandoned_events as u64;
+        self.counters
+            .shutdown_abandoned_events
+            .fetch_add(abandoned_events, Ordering::Relaxed);
+        self.counters
+            .dropped_events
+            .fetch_add(abandoned_events, Ordering::Relaxed);
+        self.counters
+            .pending_export_events
+            .store(0, Ordering::Relaxed);
+    }
+
+    fn complete_pending_events(&self, event_count: usize) {
+        let event_count = event_count as u64;
+        let _ = self.counters.pending_export_events.fetch_update(
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+            |current| Some(current.saturating_sub(event_count)),
+        );
     }
 
     /// Returns a consistent-enough operational snapshot.
@@ -127,6 +168,13 @@ impl InternalTelemetry {
                 .counters
                 .permanent_export_failures
                 .load(Ordering::Relaxed),
+            pending_export_events: self.counters.pending_export_events.load(Ordering::Relaxed),
+            shutdowns: self.counters.shutdowns.load(Ordering::Relaxed),
+            drain_timeouts: self.counters.drain_timeouts.load(Ordering::Relaxed),
+            shutdown_abandoned_events: self
+                .counters
+                .shutdown_abandoned_events
+                .load(Ordering::Relaxed),
         }
     }
 }
@@ -148,6 +196,10 @@ struct Counters {
     export_retries: AtomicU64,
     retryable_export_failures: AtomicU64,
     permanent_export_failures: AtomicU64,
+    pending_export_events: AtomicU64,
+    shutdowns: AtomicU64,
+    drain_timeouts: AtomicU64,
+    shutdown_abandoned_events: AtomicU64,
 }
 
 /// An immutable snapshot suitable for diagnostics or metrics export.
@@ -168,4 +220,8 @@ pub struct InternalTelemetrySnapshot {
     pub export_retries: u64,
     pub retryable_export_failures: u64,
     pub permanent_export_failures: u64,
+    pub pending_export_events: u64,
+    pub shutdowns: u64,
+    pub drain_timeouts: u64,
+    pub shutdown_abandoned_events: u64,
 }
