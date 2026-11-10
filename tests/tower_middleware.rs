@@ -2,7 +2,9 @@
 
 use std::convert::Infallible;
 
+use bytes::Bytes;
 use http::{Request, Response, StatusCode};
+use http_body_util::{BodyExt, Full};
 use safe_http_telemetry::{
     core::{
         event::{CaptureInfo, HttpEvent, LogLevel, RequestInfo, ResponseInfo, TimingInfo},
@@ -48,7 +50,7 @@ async fn minimal_event_is_queued_without_altering_the_response() {
             Response::builder()
                 .status(StatusCode::CREATED)
                 .header("x-test", "unchanged")
-                .body("response-body")
+                .body(Full::new(Bytes::from_static(b"response-body")))
                 .unwrap(),
         )
     });
@@ -64,7 +66,8 @@ async fn minimal_event_is_queued_without_altering_the_response() {
 
     assert_eq!(response.status(), StatusCode::CREATED);
     assert_eq!(response.headers()["x-test"], "unchanged");
-    assert_eq!(response.into_body(), "response-body");
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(body, Bytes::from_static(b"response-body"));
 
     let event = receiver.try_recv().expect("one HTTP event");
     assert_eq!(event.request.method, "POST");
@@ -95,7 +98,12 @@ async fn event_for_status(status: StatusCode) -> HttpEvent {
     let layer = layer(queue, policies());
 
     let service = service_fn(move |_request: Request<()>| async move {
-        Ok::<_, Infallible>(Response::builder().status(status).body(()).unwrap())
+        Ok::<_, Infallible>(
+            Response::builder()
+                .status(status)
+                .body(Full::new(Bytes::new()))
+                .unwrap(),
+        )
     });
 
     let response = layer
@@ -133,13 +141,15 @@ async fn excluded_route_preserves_response_without_an_event() {
         .unwrap();
 
     let layer = layer(queue, policies);
-    let service =
-        service_fn(|_request: Request<()>| async { Ok::<_, Infallible>(Response::new("healthy")) });
+    let service = service_fn(|_request: Request<()>| async {
+        Ok::<_, Infallible>(Response::new(Full::new(Bytes::from_static(b"healthy"))))
+    });
 
     let request = Request::builder().uri("/health").body(()).unwrap();
     let response = layer.layer(service).oneshot(request).await.unwrap();
 
-    assert_eq!(response.into_body(), "healthy");
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(body, Bytes::from_static(b"healthy"));
     assert!(receiver.try_recv().is_none());
 
     let snapshot = telemetry.snapshot();
@@ -162,8 +172,9 @@ async fn request_id_propagation_is_opt_in_and_validated() {
     )
     .unwrap();
 
-    let service =
-        service_fn(|_request: Request<()>| async { Ok::<_, Infallible>(Response::new(())) });
+    let service = service_fn(|_request: Request<()>| async {
+        Ok::<_, Infallible>(Response::new(Full::new(Bytes::new())))
+    });
 
     let valid = Request::builder()
         .header("x-request-id", "client-request-123")
@@ -175,8 +186,9 @@ async fn request_id_propagation_is_opt_in_and_validated() {
         "client-request-123"
     );
 
-    let service =
-        service_fn(|_request: Request<()>| async { Ok::<_, Infallible>(Response::new(())) });
+    let service = service_fn(|_request: Request<()>| async {
+        Ok::<_, Infallible>(Response::new(Full::new(Bytes::new())))
+    });
     let invalid = Request::builder()
         .header("x-request-id", "invalid request id")
         .body(())
@@ -212,8 +224,9 @@ async fn normalized_route_is_separate_from_the_raw_path() {
     )
     .unwrap();
 
-    let service =
-        service_fn(|_request: Request<()>| async { Ok::<_, Infallible>(Response::new(())) });
+    let service = service_fn(|_request: Request<()>| async {
+        Ok::<_, Infallible>(Response::new(Full::new(Bytes::new())))
+    });
     let request = Request::builder().uri("/users/123").body(()).unwrap();
 
     layer.layer(service).oneshot(request).await.unwrap();
@@ -231,7 +244,9 @@ async fn saturated_queue_drops_telemetry_without_changing_response() {
     let layer = layer(queue.clone(), policies());
 
     let service = service_fn(|_request: Request<()>| async {
-        Ok::<_, Infallible>(Response::new("application-response"))
+        Ok::<_, Infallible>(Response::new(Full::new(Bytes::from_static(
+            b"application-response",
+        ))))
     });
 
     let response = layer
@@ -239,7 +254,8 @@ async fn saturated_queue_drops_telemetry_without_changing_response() {
         .oneshot(Request::new(()))
         .await
         .unwrap();
-    assert_eq!(response.into_body(), "application-response");
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(body, Bytes::from_static(b"application-response"));
 
     let retained = receiver.try_recv().expect("original queued event");
     assert_eq!(retained.request_id, "prefilled");
