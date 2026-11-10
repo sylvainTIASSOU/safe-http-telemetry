@@ -134,11 +134,21 @@ impl InternalTelemetry {
 
     fn complete_pending_events(&self, event_count: usize) {
         let event_count = event_count as u64;
-        let _ = self.counters.pending_export_events.fetch_update(
-            Ordering::Relaxed,
-            Ordering::Relaxed,
-            |current| Some(current.saturating_sub(event_count)),
-        );
+        let mut current = self.counters.pending_export_events.load(Ordering::Relaxed);
+
+        loop {
+            let updated = current.saturating_sub(event_count);
+
+            match self.counters.pending_export_events.compare_exchange_weak(
+                current,
+                updated,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => break,
+                Err(actual) => current = actual,
+            }
+        }
     }
 
     /// Returns a consistent-enough operational snapshot.
