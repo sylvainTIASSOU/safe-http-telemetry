@@ -1007,10 +1007,12 @@ version = "0.1.0-dev.0"
 dependencies = [
  "async-channel",
  "axum",
+ "http",
  "http-body-util",
  "maxminddb",
  "opentelemetry",
  "opentelemetry_sdk",
+ "pin-project-lite",
  "reqwest",
  "serde",
  "serde_json",
