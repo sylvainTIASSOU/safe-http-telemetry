@@ -1,8 +1,9 @@
 //! Tower middleware for the HTTP request lifecycle.
 //!
-//! This increment observes minimal request metadata and emits the event when
-//! response headers arrive. Response-body completion and cancellation are
-//! implemented by the subsequent middleware increments.
+//! This middleware observes minimal request metadata through response-body
+//! completion, service errors, timeouts and premature cancellation. Terminal
+//! events are finalized exactly once and submitted without network activity
+//! on the application request path.
 
 mod body;
 mod config;
@@ -195,6 +196,9 @@ where
             started_at,
             queue: self.queue.clone(),
             telemetry: self.telemetry.clone(),
+            span: span.clone(),
+            terminal: false,
+            emit_cancellation_events: self.config.emit_cancellation_events,
         };
 
         HttpTelemetryResponseFuture::observed(inner, context, span, self.error_classifier.clone())
@@ -302,6 +306,9 @@ pub(crate) struct RequestContext {
     started_at: Instant,
     queue: BoundedEventQueue,
     telemetry: InternalTelemetry,
+    span: Span,
+    terminal: bool,
+    emit_cancellation_events: bool,
 }
 
 impl RequestContext {
@@ -313,12 +320,13 @@ impl RequestContext {
     }
 
     pub(crate) fn complete_body(
-        self,
+        mut self,
         span: &Span,
         status: StatusCode,
         time_to_first_byte_ms: f64,
         body_duration_ms: f64,
     ) {
+        self.terminal = true;
         let event = self.build_event(
             Some(status.as_u16()),
             ResponseOutcome::from_status(status.as_u16()),
@@ -330,7 +338,8 @@ impl RequestContext {
         emit_terminal_event(span, event, &self.queue);
     }
 
-    fn complete_failure(self, span: &Span, failure: RequestFailure) {
+    fn complete_failure(mut self, span: &Span, failure: RequestFailure) {
+        self.terminal = true;
         let outcome = match failure {
             RequestFailure::ServerError => ResponseOutcome::ServerError,
             RequestFailure::Timeout => ResponseOutcome::Timeout,
@@ -346,12 +355,13 @@ impl RequestContext {
     }
 
     pub(crate) fn fail_body(
-        self,
+        mut self,
         span: &Span,
         status: StatusCode,
         time_to_first_byte_ms: f64,
         body_duration_ms: f64,
     ) {
+        self.terminal = true;
         let event = self.build_event(
             Some(status.as_u16()),
             ResponseOutcome::ServerError,
@@ -361,6 +371,27 @@ impl RequestContext {
 
         self.telemetry.record_request_failed();
         emit_terminal_event(span, event, &self.queue);
+    }
+
+    pub(crate) fn cancel_body(
+        mut self,
+        status: StatusCode,
+        time_to_first_byte_ms: f64,
+        body_duration_ms: f64,
+    ) {
+        self.terminal = true;
+        self.telemetry.record_request_cancelled();
+
+        if self.emit_cancellation_events {
+            let event = self.build_event(
+                Some(status.as_u16()),
+                ResponseOutcome::Cancelled,
+                Some(time_to_first_byte_ms),
+                Some(body_duration_ms),
+            );
+
+            emit_terminal_event(&self.span, event, &self.queue);
+        }
     }
 
     fn build_event(
@@ -383,6 +414,21 @@ impl RequestContext {
             timing,
             CaptureInfo::default(),
         )
+    }
+}
+
+impl Drop for RequestContext {
+    fn drop(&mut self) {
+        if self.terminal {
+            return;
+        }
+
+        self.telemetry.record_request_cancelled();
+
+        if self.emit_cancellation_events {
+            let event = self.build_event(None, ResponseOutcome::Cancelled, None, None);
+            emit_terminal_event(&self.span, event, &self.queue);
+        }
     }
 }
 
