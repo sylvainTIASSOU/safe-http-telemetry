@@ -4,6 +4,7 @@
 //! response headers arrive. Response-body completion and cancellation are
 //! implemented by the subsequent middleware increments.
 
+mod body;
 mod config;
 mod request_id;
 
@@ -30,6 +31,7 @@ use crate::{
     runtime::queue::BoundedEventQueue,
 };
 
+pub use body::ObservedBody;
 pub use config::MiddlewareConfig;
 
 /// Stable route value used when the HTTP framework exposes no matched route.
@@ -117,8 +119,9 @@ impl<S, R, RequestBody, ResponseBody> Service<Request<RequestBody>> for HttpTele
 where
     S: Service<Request<RequestBody>, Response = Response<ResponseBody>>,
     R: RouteResolver,
+    ResponseBody: http_body::Body,
 {
-    type Response = S::Response;
+    type Response = Response<ObservedBody<ResponseBody>>;
     type Error = S::Error;
     type Future = HttpTelemetryResponseFuture<S::Future>;
 
@@ -206,8 +209,9 @@ impl<F> HttpTelemetryResponseFuture<F> {
 impl<F, Body, Error> Future for HttpTelemetryResponseFuture<F>
 where
     F: Future<Output = Result<Response<Body>, Error>>,
+    Body: http_body::Body,
 {
-    type Output = F::Output;
+    type Output = Result<Response<ObservedBody<Body>>, Error>;
 
     fn poll(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
         let mut this = self.project();
@@ -220,9 +224,34 @@ where
         match result {
             Poll::Pending => Poll::Pending,
             Poll::Ready(Ok(response)) => {
-                if let Some(request) = this.context.take() {
-                    request.complete(&*this.span, response.status());
-                }
+                let status = response.status();
+                let (parts, body) = response.into_parts();
+
+                let response = match this.context.take() {
+                    Some(request) => {
+                        let response_received_at = Instant::now();
+                        let time_to_first_byte_ms =
+                            request.time_to_first_byte_ms(response_received_at);
+
+                        if body.is_end_stream() {
+                            request.complete_body(&*this.span, status, time_to_first_byte_ms, 0.0);
+
+                            Response::from_parts(parts, ObservedBody::finished(body))
+                        } else {
+                            let observed = ObservedBody::observed(
+                                body,
+                                request,
+                                Span::clone(&*this.span),
+                                status,
+                                response_received_at,
+                                time_to_first_byte_ms,
+                            );
+
+                            Response::from_parts(parts, observed)
+                        }
+                    }
+                    None => Response::from_parts(parts, ObservedBody::excluded(body)),
+                };
 
                 Poll::Ready(Ok(response))
             }
@@ -235,7 +264,7 @@ where
     }
 }
 
-struct RequestContext {
+pub(crate) struct RequestContext {
     request_id: String,
     method: String,
     route: String,
@@ -246,11 +275,27 @@ struct RequestContext {
 }
 
 impl RequestContext {
-    fn complete(self, span: &Span, status: StatusCode) {
+    pub(crate) fn time_to_first_byte_ms(&self, response_received_at: Instant) -> f64 {
+        response_received_at
+            .saturating_duration_since(self.started_at)
+            .as_secs_f64()
+            * 1_000.0
+    }
+
+    pub(crate) fn complete_body(
+        self,
+        span: &Span,
+        status: StatusCode,
+        time_to_first_byte_ms: f64,
+        body_duration_ms: f64,
+    ) {
         let duration_ms = self.started_at.elapsed().as_secs_f64() * 1_000.0;
         let request = RequestInfo::new(self.method, self.route, self.path);
         let response = ResponseInfo::new(status.as_u16());
-        let timing = TimingInfo::new(duration_ms);
+        let mut timing = TimingInfo::new(duration_ms);
+        timing.time_to_first_byte_ms = Some(time_to_first_byte_ms);
+        timing.body_duration_ms = Some(body_duration_ms);
+
         let event = HttpEvent::new(
             self.request_id,
             request,
@@ -260,7 +305,6 @@ impl RequestContext {
         );
 
         let outcome = outcome_name(&event);
-
         span.record("status_code", u64::from(status.as_u16()));
         span.record("duration_ms", duration_ms);
         span.record("outcome", outcome);
