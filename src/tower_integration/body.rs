@@ -53,7 +53,7 @@ impl<B> ObservedBody<B> {
         Self {
             inner,
             completion: Some(ResponseCompletion {
-                request,
+                request: Some(request),
                 span,
                 status,
                 response_received_at,
@@ -120,7 +120,7 @@ where
 }
 
 struct ResponseCompletion {
-    request: RequestContext,
+    request: Option<RequestContext>,
     span: Span,
     status: StatusCode,
     response_received_at: Instant,
@@ -128,26 +128,42 @@ struct ResponseCompletion {
 }
 
 impl ResponseCompletion {
-    fn complete(self) {
+    fn complete(mut self) {
         let body_duration_ms = self.response_received_at.elapsed().as_secs_f64() * 1_000.0;
 
-        self.request.complete_body(
-            &self.span,
-            self.status,
-            self.time_to_first_byte_ms,
-            body_duration_ms,
-        );
+        if let Some(request) = self.request.take() {
+            request.complete_body(
+                &self.span,
+                self.status,
+                self.time_to_first_byte_ms,
+                body_duration_ms,
+            );
+        }
     }
 
-    fn fail(self) {
+    fn fail(mut self) {
         let body_duration_ms = self.response_received_at.elapsed().as_secs_f64() * 1_000.0;
 
-        self.request.fail_body(
-            &self.span,
-            self.status,
-            self.time_to_first_byte_ms,
-            body_duration_ms,
-        );
+        if let Some(request) = self.request.take() {
+            request.fail_body(
+                &self.span,
+                self.status,
+                self.time_to_first_byte_ms,
+                body_duration_ms,
+            );
+        }
+    }
+}
+
+impl Drop for ResponseCompletion {
+    fn drop(&mut self) {
+        let Some(request) = self.request.take() else {
+            return;
+        };
+
+        let body_duration_ms = self.response_received_at.elapsed().as_secs_f64() * 1_000.0;
+
+        request.cancel_body(self.status, self.time_to_first_byte_ms, body_duration_ms);
     }
 }
 
