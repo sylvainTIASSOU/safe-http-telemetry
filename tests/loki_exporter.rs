@@ -10,7 +10,9 @@ use safe_http_telemetry::{
     },
     loki::{
         config::LokiConfig,
-        exporter::{LokiExporter, LokiExporterError, LokiExporterHandle, MAX_WORKER_COUNT},
+        exporter::{
+            LokiExporter, LokiExporterError, LokiExporterHandle, ShutdownOutcome, MAX_WORKER_COUNT,
+        },
     },
     runtime::queue::{BoundedEventQueue, QueueConfig},
 };
@@ -123,10 +125,13 @@ async fn read_http_request(socket: &mut TcpStream) -> Vec<u8> {
 }
 
 async fn join_workers(handle: LokiExporterHandle) {
-    timeout(Duration::from_secs(2), handle.join())
+    let report = timeout(Duration::from_secs(2), handle.shutdown())
         .await
-        .unwrap()
         .unwrap();
+
+    assert_eq!(report.outcome, ShutdownOutcome::Drained);
+    assert_eq!(report.abandoned_events, 0);
+    assert_eq!(report.worker_failures, 0);
 }
 
 fn request_ids(bodies: &[Vec<u8>]) -> Vec<String> {

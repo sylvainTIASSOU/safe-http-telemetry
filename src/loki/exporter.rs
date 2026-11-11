@@ -135,17 +135,17 @@ impl LokiExporterHandle {
         self.workers.len()
     }
 
-    /// Waits for workers after the caller closes the queue.
-    ///
-    /// Prefer [`LokiExporterHandle::shutdown`] in production, because this
-    /// method has no deadline and waits indefinitely while the queue is open.
-    pub async fn join(mut self) -> Result<(), LokiExporterError> {
-        if join_workers(&mut self.workers).await == 0 {
-            Ok(())
-        } else {
-            Err(LokiExporterError::WorkerJoin)
-        }
-    }
+    // Waits for workers after the caller closes the queue.
+    //
+    // Prefer [`LokiExporterHandle::shutdown`] in production, because this
+    // method has no deadline and waits indefinitely while the queue is open.
+    // pub async fn join(mut self) -> Result<(), LokiExporterError> {
+    //     if join_workers(&mut self.workers).await == 0 {
+    //         Ok(())
+    //     } else {
+    //         Err(LokiExporterError::WorkerJoin)
+    //     }
+    // }
 
     /// Closes producers, drains within the configured deadline, and accounts
     /// for queued or worker-owned events that could not be exported.
