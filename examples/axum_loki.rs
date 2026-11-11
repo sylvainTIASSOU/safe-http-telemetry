@@ -3,24 +3,44 @@ use std::{env, time::Duration};
 use axum::{routing::get, Router};
 use safe_http_telemetry::{
     axum_adapter::axum_telemetry_layer,
-    config::ServiceConfig,
+    config::{CaptureLimits, RedactionConfig, ServiceConfig},
     core::telemetry::InternalTelemetry,
     loki::{config::LokiConfig, exporter::LokiExporter},
     policy::{CaptureProfile, RoutePattern, RoutePolicy, RoutePolicySet},
+    redaction::Redactor,
     runtime::queue::{BoundedEventQueue, QueueConfig},
     tower_integration::config::MiddlewareConfig,
+    tracing_integration::business::{BusinessLogConfig, BusinessLogLayer},
 };
+
+use opentelemetry::trace::TracerProvider;
+use opentelemetry_sdk::trace::SdkTracerProvider;
+use tracing_subscriber::prelude::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::INFO)
-        .init();
-
     let push_url = env::var("LOKI_PUSH_URL")
         .unwrap_or_else(|_| "http://127.0.0.1:3100/loki/api/v1/push".to_owned());
 
     let queue = BoundedEventQueue::new(QueueConfig::new(1_024), InternalTelemetry::new())?;
+
+    let redactor = Redactor::new(
+        &RedactionConfig::default(),
+        &CaptureLimits::default(),
+        queue.telemetry(),
+    )?;
+    let business_layer =
+        BusinessLogLayer::new(queue.clone(), redactor, BusinessLogConfig::default())?;
+
+    let tracer_provider = SdkTracerProvider::default();
+    let tracer = tracer_provider.tracer("safe-http-telemetry-example");
+
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::filter::LevelFilter::INFO)
+        .with(tracing_subscriber::fmt::layer())
+        .with(tracing_opentelemetry::layer().with_tracer(tracer))
+        .with(business_layer)
+        .try_init()?;
 
     let service = ServiceConfig {
         name: "safe-http-telemetry-example".to_owned(),
@@ -49,7 +69,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = Router::new()
         .route(
             "/hello/{name}",
-            get(|| async { "Hello from safe HTTP telemetry\n" }),
+            get(|| async {
+                tracing::info!(order_id = "fictitious-order-001", "Greeting requested");
+
+                "Hello from safe HTTP telemetry\n"
+            }),
         )
         .route("/health", get(|| async { "OK\n" }))
         .layer(telemetry_layer);
@@ -65,6 +89,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await;
 
     let shutdown_report = exporter.shutdown().await;
+    tracer_provider.shutdown()?;
     server_result?;
 
     println!("Loki shutdown: {shutdown_report:?}");

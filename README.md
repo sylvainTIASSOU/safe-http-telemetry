@@ -21,8 +21,11 @@ The `axum` feature provides normalized `MatchedPath` routes, bounded event
 submission and response preservation for ordinary and streaming bodies.
 See `docs/axum.md` for layer placement, timeout handling and shutdown order.
 
-```markdown
 - [Executable Axum examples and real-Loki end-to-end validation](examples/README.md)
+
+Native `tracing` business events use the same bounded queue and redaction
+pipeline as HTTP events. OpenTelemetry correlation and Grafana navigation are
+covered in `docs/grafana-opentelemetry.md`.
 
 ## Project structure
 
@@ -43,7 +46,9 @@ See `docs/axum.md` for layer placement, timeout handling and shutdown order.
 
 The project follows the standard Cargo package layout. There is no `src/main.rs` because this package is a library.
 
-## Planned features
+## Cargo features
+
+These features do not currently expose a stable API.
 
 - `axum`
 - `tower`
@@ -63,9 +68,8 @@ The minimum supported Rust version (MSRV) is 1.85.0.
 Run:
 
 ```sh
-cargo generate-lockfile
-cargo check --all-targets --all-features
-cargo test --all-targets --all-features
-cargo clippy --all-targets --all-features -- -D warnings
+cargo check --locked --all-targets --all-features
+cargo test --locked --all-targets --all-features
+cargo clippy --locked --all-targets --all-features -- -D warnings
 cargo fmt --all -- --check
-cargo doc --no-deps --all-features
+cargo doc --locked --no-deps --all-features

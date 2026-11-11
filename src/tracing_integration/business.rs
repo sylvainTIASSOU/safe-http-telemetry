@@ -104,7 +104,7 @@ where
         };
 
         if let Some(span) = context.span(id) {
-            span.extensions_mut().insert(SpanCorrelation(correlation));
+            let _ = span.extensions_mut().replace(SpanCorrelation(correlation));
         }
     }
 

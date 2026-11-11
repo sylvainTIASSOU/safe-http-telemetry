@@ -187,3 +187,49 @@ fn business_event_uses_the_current_opentelemetry_span_ids() {
     assert_eq!(event.trace_id.as_deref(), Some(expected.trace_id.as_str()));
     assert_eq!(event.span_id.as_deref(), Some(expected.span_id.as_str()));
 }
+
+#[cfg(feature = "opentelemetry")]
+#[test]
+fn entering_the_same_span_twice_preserves_correlation_without_panicking() {
+    use opentelemetry::trace::TracerProvider;
+    use opentelemetry_sdk::trace::SdkTracerProvider;
+    use safe_http_telemetry::tracing_integration::propagation::TraceCorrelation;
+
+    let queue = queue(4);
+    let provider = SdkTracerProvider::default();
+    let tracer = provider.tracer("repeated-span-enter-test");
+    let business = business_layer(queue.clone(), BusinessLogConfig::default());
+
+    let subscriber = tracing_subscriber::Registry::default()
+        .with(tracing_opentelemetry::layer().with_tracer(tracer))
+        .with(business);
+
+    let expected = tracing::subscriber::with_default(subscriber, || {
+        let span = tracing::info_span!("http.request", request_id = "request-repeated-enter");
+        let correlation = TraceCorrelation::from_span(&span).unwrap();
+
+        {
+            let _entered = span.enter();
+            tracing::info!("First poll");
+        }
+
+        {
+            let _entered = span.enter();
+            tracing::info!("Second poll");
+        }
+
+        correlation
+    });
+
+    let first = receive_business(&queue);
+    let second = receive_business(&queue);
+
+    for event in [&first, &second] {
+        assert_eq!(event.request_id.as_deref(), Some("request-repeated-enter"));
+        assert_eq!(event.trace_id.as_deref(), Some(expected.trace_id.as_str()));
+        assert_eq!(event.span_id.as_deref(), Some(expected.span_id.as_str()));
+    }
+
+    assert_eq!(first.message.as_deref(), Some("First poll"));
+    assert_eq!(second.message.as_deref(), Some("Second poll"));
+}
