@@ -1,5 +1,8 @@
 #![cfg(feature = "tower")]
 
+mod common;
+
+use common::expect_http;
 use std::convert::Infallible;
 
 use bytes::Bytes;
@@ -69,7 +72,7 @@ async fn minimal_event_is_queued_without_altering_the_response() {
     let body = response.into_body().collect().await.unwrap().to_bytes();
     assert_eq!(body, Bytes::from_static(b"response-body"));
 
-    let event = receiver.try_recv().expect("one HTTP event");
+    let event = expect_http(receiver.try_recv().expect("one HTTP event"));
     assert_eq!(event.request.method, "POST");
     assert_eq!(event.request.route, UNMATCHED_ROUTE);
     assert_eq!(event.request.path, "/orders/42");
@@ -113,7 +116,7 @@ async fn event_for_status(status: StatusCode) -> HttpEvent {
         .unwrap();
     assert_eq!(response.status(), status);
 
-    receiver.try_recv().expect("one HTTP event")
+    expect_http(receiver.try_recv().expect("one HTTP event"))
 }
 
 #[tokio::test]
@@ -182,7 +185,7 @@ async fn request_id_propagation_is_opt_in_and_validated() {
         .unwrap();
     layer.clone().layer(service).oneshot(valid).await.unwrap();
     assert_eq!(
-        receiver.try_recv().expect("valid request event").request_id,
+        expect_http(receiver.try_recv().expect("valid request event")).request_id,
         "client-request-123"
     );
 
@@ -195,10 +198,7 @@ async fn request_id_propagation_is_opt_in_and_validated() {
         .unwrap();
     layer.layer(service).oneshot(invalid).await.unwrap();
 
-    let generated = receiver
-        .try_recv()
-        .expect("invalid request event")
-        .request_id;
+    let generated = expect_http(receiver.try_recv().expect("invalid request event")).request_id;
     assert_ne!(generated, "invalid request id");
     assert!(generated.starts_with("req-"));
 }
@@ -231,7 +231,7 @@ async fn normalized_route_is_separate_from_the_raw_path() {
 
     layer.layer(service).oneshot(request).await.unwrap();
 
-    let event = receiver.try_recv().expect("one HTTP event");
+    let event = expect_http(receiver.try_recv().expect("one HTTP event"));
     assert_eq!(event.request.route, "/users/{id}");
     assert_eq!(event.request.path, "/users/123");
 }
@@ -257,7 +257,7 @@ async fn saturated_queue_drops_telemetry_without_changing_response() {
     let body = response.into_body().collect().await.unwrap().to_bytes();
     assert_eq!(body, Bytes::from_static(b"application-response"));
 
-    let retained = receiver.try_recv().expect("original queued event");
+    let retained = expect_http(receiver.try_recv().expect("original queued event"));
     assert_eq!(retained.request_id, "prefilled");
     assert!(receiver.try_recv().is_none());
 

@@ -5,7 +5,10 @@
 
 use std::{error::Error, fmt};
 
-use crate::{config::ServiceConfig, core::event::HttpEvent};
+use crate::{
+    config::ServiceConfig,
+    core::event::{BusinessEvent, HttpEvent, TelemetryEvent},
+};
 
 use super::{
     config::BatchConfig,
@@ -76,7 +79,7 @@ impl LokiBatchBuilder {
         })
     }
 
-    /// Attempts to add an already-redacted event without exceeding either limit.
+    /// Attempts to add an already-redacted HTTP event.
     pub fn try_push(
         &mut self,
         event: &HttpEvent,
@@ -89,6 +92,38 @@ impl LokiBatchBuilder {
         let stream = LokiStream::from_event(event, &self.service, timestamp_ns)
             .map_err(|_| LokiBatchError::Serialization)?;
 
+        self.try_push_stream(stream)
+    }
+
+    /// Attempts to add either an HTTP or a business event.
+    pub fn try_push_telemetry(
+        &mut self,
+        event: &TelemetryEvent,
+        timestamp_ns: u128,
+    ) -> Result<BatchPush, LokiBatchError> {
+        match event {
+            TelemetryEvent::Http(event) => self.try_push(event, timestamp_ns),
+            TelemetryEvent::Business(event) => self.try_push_business(event, timestamp_ns),
+        }
+    }
+
+    /// Attempts to add an already-redacted business event.
+    pub fn try_push_business(
+        &mut self,
+        event: &BusinessEvent,
+        timestamp_ns: u128,
+    ) -> Result<BatchPush, LokiBatchError> {
+        if self.event_count >= self.config.max_events {
+            return Ok(BatchPush::Full);
+        }
+
+        let stream = LokiStream::from_business_event(event, &self.service, timestamp_ns)
+            .map_err(|_| LokiBatchError::Serialization)?;
+
+        self.try_push_stream(stream)
+    }
+
+    fn try_push_stream(&mut self, stream: LokiStream) -> Result<BatchPush, LokiBatchError> {
         let mut candidate_streams = self.streams.clone();
         candidate_streams.push(stream);
         let candidate = LokiPushRequest::new(candidate_streams);

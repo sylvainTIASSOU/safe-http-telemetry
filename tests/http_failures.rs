@@ -1,5 +1,8 @@
 #![cfg(feature = "tower")]
 
+mod common;
+
+use common::expect_http;
 use std::{
     convert::Infallible,
     pin::Pin,
@@ -63,7 +66,7 @@ async fn handler_error_has_no_invented_status_or_sensitive_message() {
     let result = layer.layer(service).oneshot(Request::new(())).await;
     assert!(matches!(result, Err(TestError::Handler(_))));
 
-    let event = receiver.try_recv().expect("handler failure event");
+    let event = expect_http(receiver.try_recv().expect("handler failure event"));
     assert_eq!(event.response.status_code, None);
     assert_eq!(event.response.outcome, Some(ResponseOutcome::ServerError));
     assert!(event.timing.time_to_first_byte_ms.is_none());
@@ -87,7 +90,7 @@ async fn typed_timeout_is_distinct_from_other_service_errors() {
     let result = layer.layer(service).oneshot(Request::new(())).await;
     assert!(matches!(result, Err(TestError::Timeout)));
 
-    let event = receiver.try_recv().expect("timeout event");
+    let event = expect_http(receiver.try_recv().expect("timeout event"));
     assert_eq!(event.response.status_code, None);
     assert_eq!(event.response.outcome, Some(ResponseOutcome::Timeout));
     assert_eq!(telemetry.snapshot().timed_out_requests, 1);
@@ -141,7 +144,7 @@ async fn body_error_preserves_known_status_and_returns_original_error() {
     let frame = std::future::poll_fn(|context| body.as_mut().poll_frame(context)).await;
     assert!(matches!(frame, Some(Err(TestError::Body))));
 
-    let event = receiver.try_recv().expect("body failure event");
+    let event = expect_http(receiver.try_recv().expect("body failure event"));
     assert_eq!(event.response.status_code, Some(206));
     assert_eq!(event.response.outcome, Some(ResponseOutcome::ServerError));
     assert!(event.timing.time_to_first_byte_ms.is_some());

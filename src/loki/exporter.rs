@@ -16,7 +16,7 @@ use tokio::{
 
 use crate::{
     config::ServiceConfig,
-    core::{event::HttpEvent, telemetry::InternalTelemetry},
+    core::{event::TelemetryEvent, telemetry::InternalTelemetry},
     runtime::queue::{BoundedEventQueue, EventQueueReceiver},
 };
 
@@ -276,7 +276,7 @@ async fn run_worker(
 }
 
 async fn process_event(
-    event: HttpEvent,
+    event: TelemetryEvent,
     client: &LokiClient,
     config: &LokiConfig,
     telemetry: &InternalTelemetry,
@@ -287,7 +287,7 @@ async fn process_event(
     let mut pending = Some(event);
 
     while let Some(event) = pending.take() {
-        match batch.try_push(&event, timestamp_ns) {
+        match batch.try_push_telemetry(&event, timestamp_ns) {
             Ok(BatchPush::Accepted) => {
                 if flush_at.is_none() {
                     *flush_at = Some(Instant::now() + config.batch.flush_interval);

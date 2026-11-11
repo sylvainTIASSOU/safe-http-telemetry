@@ -1,6 +1,6 @@
 use safe_http_telemetry::{
     core::{
-        event::{CaptureInfo, HttpEvent, RequestInfo, ResponseInfo, TimingInfo},
+        event::{CaptureInfo, HttpEvent, RequestInfo, ResponseInfo, TelemetryEvent, TimingInfo},
         telemetry::InternalTelemetry,
     },
     runtime::queue::{
@@ -32,6 +32,15 @@ fn sample_event(request_id: &str) -> HttpEvent {
 
 fn queue_with_capacity(capacity: usize) -> BoundedEventQueue {
     BoundedEventQueue::new(QueueConfig::new(capacity), InternalTelemetry::new()).unwrap()
+}
+
+fn expect_http(event: TelemetryEvent) -> HttpEvent {
+    match event {
+        TelemetryEvent::Http(event) => *event,
+        TelemetryEvent::Business(_) => {
+            panic!("expected an HTTP event")
+        }
+    }
 }
 
 #[test]
@@ -81,11 +90,11 @@ async fn saturation_drops_the_newest_event_and_updates_counters() {
     assert_eq!(stats.occupancy, 2);
 
     assert_eq!(
-        receiver.recv().await.unwrap().request_id,
+        expect_http(receiver.recv().await.unwrap()).request_id,
         "request-queue-0001"
     );
     assert_eq!(
-        receiver.recv().await.unwrap().request_id,
+        expect_http(receiver.recv().await.unwrap()).request_id,
         "request-queue-0002"
     );
 }
@@ -106,7 +115,7 @@ async fn close_drains_buffered_events_then_ends_receivers() {
     );
 
     assert_eq!(
-        receiver.recv().await.unwrap().request_id,
+        expect_http(receiver.recv().await.unwrap()).request_id,
         "request-queue-0001"
     );
     assert!(receiver.recv().await.is_none());
@@ -136,7 +145,7 @@ async fn cloned_receivers_distribute_each_event_exactly_once() {
         workers.push(tokio::spawn(async move {
             let mut request_ids = Vec::new();
             while let Some(event) = receiver.recv().await {
-                request_ids.push(event.request_id);
+                request_ids.push(expect_http(event).request_id);
             }
             request_ids
         }));

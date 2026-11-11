@@ -8,7 +8,7 @@ use std::{error::Error, fmt};
 
 use async_channel::{bounded, Receiver, Sender, TrySendError};
 
-use crate::core::{event::HttpEvent, telemetry::InternalTelemetry};
+use crate::core::{event::TelemetryEvent, telemetry::InternalTelemetry};
 
 /// Behavior applied when the bounded queue has no remaining capacity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -94,8 +94,8 @@ pub struct QueueStats {
 /// implement `Debug`, because its channel contains HTTP events.
 #[derive(Clone)]
 pub struct BoundedEventQueue {
-    sender: Sender<HttpEvent>,
-    receiver: Receiver<HttpEvent>,
+    sender: Sender<TelemetryEvent>,
+    receiver: Receiver<TelemetryEvent>,
     config: QueueConfig,
     telemetry: InternalTelemetry,
 }
@@ -124,7 +124,9 @@ impl BoundedEventQueue {
     ///
     /// Under `drop_newest`, a full queue rejects the incoming event. Closing
     /// the queue rejects subsequent pushes but does not discard queued events.
-    pub fn try_push(&self, event: HttpEvent) -> Result<(), TryPushError> {
+    pub fn try_push(&self, event: impl Into<TelemetryEvent>) -> Result<(), TryPushError> {
+        let event = event.into();
+
         match self.config.saturation_policy {
             SaturationPolicy::DropNewest => match self.sender.try_send(event) {
                 Ok(()) => {
@@ -192,7 +194,7 @@ impl BoundedEventQueue {
 /// does not implement `Debug`, because received values contain HTTP data.
 #[derive(Clone)]
 pub struct EventQueueReceiver {
-    receiver: Receiver<HttpEvent>,
+    receiver: Receiver<TelemetryEvent>,
 }
 
 impl EventQueueReceiver {
@@ -200,12 +202,12 @@ impl EventQueueReceiver {
     ///
     /// Returns `None` after the queue is closed and all queued events have
     /// been consumed.
-    pub async fn recv(&self) -> Option<HttpEvent> {
+    pub async fn recv(&self) -> Option<TelemetryEvent> {
         self.receiver.recv().await.ok()
     }
 
     /// Returns one immediately available event, or `None` when empty or closed.
-    pub fn try_recv(&self) -> Option<HttpEvent> {
+    pub fn try_recv(&self) -> Option<TelemetryEvent> {
         self.receiver.try_recv().ok()
     }
 }

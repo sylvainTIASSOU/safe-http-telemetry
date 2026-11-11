@@ -1,5 +1,7 @@
 #![cfg(feature = "axum")]
+mod common;
 
+use common::expect_http;
 use std::{convert::Infallible, time::Duration};
 
 use axum::{
@@ -46,7 +48,7 @@ async fn axum_matched_path_is_used_instead_of_a_dynamic_raw_route() {
     let response = app.oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let event = receiver.try_recv().expect("Axum completion event");
+    let event = expect_http(receiver.try_recv().expect("Axum completion event"));
     assert_eq!(event.request.route, "/users/{id}");
     assert_eq!(event.request.path, "/users/123");
     assert_eq!(event.response.status_code, Some(200));
@@ -119,7 +121,7 @@ async fn unmatched_axum_request_uses_a_stable_route_value() {
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 
-    let event = receiver.try_recv().expect("unmatched-route event");
+    let event = expect_http(receiver.try_recv().expect("unmatched-route event"));
     assert_eq!(event.request.route, UNMATCHED_ROUTE);
     assert_eq!(event.request.path, "/missing/123");
     assert_eq!(event.response.status_code, Some(404));
@@ -165,7 +167,7 @@ async fn axum_stream_is_unchanged_and_finalizes_after_the_last_fragment() {
     let body = response.into_body().collect().await.unwrap().to_bytes();
     assert_eq!(body, Bytes::from_static(b"first-second"));
 
-    let event = receiver.try_recv().expect("stream completion event");
+    let event = expect_http(receiver.try_recv().expect("stream completion event"));
     assert_eq!(event.request.route, "/stream");
     assert_eq!(event.response.status_code, Some(200));
     assert!(event.timing.time_to_first_byte_ms.is_some());
@@ -197,7 +199,7 @@ async fn tower_elapsed_error_is_classified_as_a_timeout() {
         .await;
     assert!(result.is_err());
 
-    let event = receiver.try_recv().expect("timeout event");
+    let event = expect_http(receiver.try_recv().expect("timeout event"));
     assert_eq!(event.response.status_code, None);
     assert_eq!(event.response.outcome, Some(ResponseOutcome::Timeout));
     assert_eq!(telemetry.snapshot().timed_out_requests, 1);

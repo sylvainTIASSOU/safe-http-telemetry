@@ -4,7 +4,10 @@ use std::{collections::BTreeMap, error::Error, fmt};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{config::ServiceConfig, core::event::HttpEvent};
+use crate::{
+    config::ServiceConfig,
+    core::event::{BusinessEvent, HttpEvent},
+};
 
 /// A Loki push request containing one or more streams.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -78,6 +81,53 @@ impl LokiStream {
 
         if let Some(span_id) = &event.span_id {
             metadata.insert("span_id".to_owned(), span_id.clone());
+        }
+
+        Ok(Self {
+            stream: labels,
+            values: vec![[timestamp_ns.to_string(), line]],
+            metadata,
+        })
+    }
+
+    /// Converts an already-redacted business event into one Loki stream entry.
+    pub fn from_business_event(
+        event: &BusinessEvent,
+        service: &ServiceConfig,
+        timestamp_ns: u128,
+    ) -> Result<Self, LokiPayloadError> {
+        let line = serde_json::to_string(event).map_err(LokiPayloadError::Serialization)?;
+
+        let mut labels = BTreeMap::from([
+            ("service".to_owned(), service.name.clone()),
+            ("environment".to_owned(), service.environment.clone()),
+            ("version".to_owned(), service.version.clone()),
+            ("event_type".to_owned(), "business".to_owned()),
+        ]);
+
+        if let Some(region) = &service.region {
+            labels.insert("region".to_owned(), region.clone());
+        }
+
+        let mut metadata = BTreeMap::from([
+            ("schema_version".to_owned(), event.schema_version.clone()),
+            ("target".to_owned(), event.target.clone()),
+        ]);
+
+        if let Some(request_id) = &event.request_id {
+            metadata.insert("request_id".to_owned(), request_id.clone());
+        }
+
+        if let Some(trace_id) = &event.trace_id {
+            metadata.insert("trace_id".to_owned(), trace_id.clone());
+        }
+
+        if let Some(span_id) = &event.span_id {
+            metadata.insert("span_id".to_owned(), span_id.clone());
+        }
+
+        if let Some(module_path) = &event.module_path {
+            metadata.insert("module_path".to_owned(), module_path.clone());
         }
 
         Ok(Self {
