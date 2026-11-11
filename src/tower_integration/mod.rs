@@ -39,6 +39,12 @@ use crate::{
 pub use body::ObservedBody;
 pub use config::MiddlewareConfig;
 pub use error::{ErrorClassifier, RequestFailure, ServerErrorClassifier};
+
+#[cfg(feature = "opentelemetry")]
+use crate::tracing_integration::propagation::{extract_trace_context, TraceCorrelation};
+#[cfg(feature = "opentelemetry")]
+use tracing_opentelemetry::OpenTelemetrySpanExt;
+
 /// Stable route value used when the HTTP framework exposes no matched route.
 pub const UNMATCHED_ROUTE: &str = "unmatched";
 
@@ -181,15 +187,44 @@ where
             request_id = %request_id,
             method = %method,
             route = %route,
+            trace_id = field::Empty,
+            span_id = field::Empty,
             status_code = field::Empty,
             duration_ms = field::Empty,
             outcome = field::Empty,
         );
 
+        #[cfg(feature = "opentelemetry")]
+        let (trace_id, span_id) = {
+            if let Some(parent) = extract_trace_context(request.headers()) {
+                // The span has just been created, so its parent can still be assigned.
+                // If no OpenTelemetry layer is installed, correlation remains absent.
+                let _ = span.set_parent(parent);
+            }
+
+            match TraceCorrelation::from_span(&span) {
+                Some(correlation) => (Some(correlation.trace_id), Some(correlation.span_id)),
+                None => (None, None),
+            }
+        };
+
+        #[cfg(not(feature = "opentelemetry"))]
+        let (trace_id, span_id): (Option<String>, Option<String>) = (None, None);
+
+        if let Some(trace_id) = trace_id.as_deref() {
+            span.record("trace_id", trace_id);
+        }
+
+        if let Some(span_id) = span_id.as_deref() {
+            span.record("span_id", span_id);
+        }
+
         let started_at = Instant::now();
         let inner = span.in_scope(|| self.inner.call(request));
         let context = RequestContext {
             request_id,
+            trace_id,
+            span_id,
             method,
             route,
             path,
@@ -300,6 +335,8 @@ where
 
 pub(crate) struct RequestContext {
     request_id: String,
+    trace_id: Option<String>,
+    span_id: Option<String>,
     method: String,
     route: String,
     path: String,
@@ -407,13 +444,17 @@ impl RequestContext {
         timing.time_to_first_byte_ms = time_to_first_byte_ms;
         timing.body_duration_ms = body_duration_ms;
 
-        HttpEvent::new(
+        let mut event = HttpEvent::new(
             self.request_id.clone(),
             request,
             response,
             timing,
             CaptureInfo::default(),
-        )
+        );
+        event.trace_id = self.trace_id.clone();
+        event.span_id = self.span_id.clone();
+
+        event
     }
 }
 
@@ -449,6 +490,8 @@ fn emit_terminal_event(span: &Span, event: HttpEvent, queue: &BoundedEventQueue)
                 parent: span,
                 TracingLevel::ERROR,
                 request_id = %event.request_id,
+                trace_id = field::display(event.trace_id.as_deref().unwrap_or("")),
+                span_id = field::display(event.span_id.as_deref().unwrap_or("")),
                 method = %event.request.method,
                 route = %event.request.route,
                 status_code = field::debug(status_code),
@@ -462,6 +505,8 @@ fn emit_terminal_event(span: &Span, event: HttpEvent, queue: &BoundedEventQueue)
                 parent: span,
                 TracingLevel::WARN,
                 request_id = %event.request_id,
+                trace_id = field::display(event.trace_id.as_deref().unwrap_or("")),
+                span_id = field::display(event.span_id.as_deref().unwrap_or("")),
                 method = %event.request.method,
                 route = %event.request.route,
                 status_code = field::debug(status_code),
@@ -475,6 +520,8 @@ fn emit_terminal_event(span: &Span, event: HttpEvent, queue: &BoundedEventQueue)
                 parent: span,
                 TracingLevel::INFO,
                 request_id = %event.request_id,
+                trace_id = field::display(event.trace_id.as_deref().unwrap_or("")),
+                span_id = field::display(event.span_id.as_deref().unwrap_or("")),
                 method = %event.request.method,
                 route = %event.request.route,
                 status_code = field::debug(status_code),
