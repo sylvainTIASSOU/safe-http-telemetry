@@ -28,6 +28,7 @@ tower = [
 tracing = ["dep:tracing", "dep:tracing-subscriber"]
 opentelemetry = [
     "tracing",
+    "dep:http",
     "dep:opentelemetry",
     "dep:opentelemetry_sdk",
     "dep:tracing-opentelemetry",
