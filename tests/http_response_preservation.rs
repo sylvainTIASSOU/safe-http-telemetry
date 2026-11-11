@@ -1,5 +1,8 @@
 #![cfg(feature = "tower")]
 
+mod common;
+
+use common::expect_http;
 use std::{collections::VecDeque, convert::Infallible, time::Duration};
 
 use bytes::Bytes;
@@ -58,7 +61,7 @@ async fn ordinary_body_is_unchanged_and_event_waits_for_completion() {
     let collected = response.into_body().collect().await.unwrap();
     assert_eq!(collected.to_bytes(), Bytes::from_static(b"ordinary-body"));
 
-    let event = receiver.try_recv().expect("event after body completion");
+    let event = expect_http(receiver.try_recv().expect("event after body completion"));
     assert_eq!(event.response.status_code, Some(201));
     assert!(event.timing.time_to_first_byte_ms.is_some());
     assert!(event.timing.body_duration_ms.is_some());
@@ -80,7 +83,7 @@ async fn empty_body_completes_immediately_exactly_once() {
         .await
         .unwrap();
 
-    let event = receiver.try_recv().expect("empty-body completion event");
+    let event = expect_http(receiver.try_recv().expect("empty-body completion event"));
     assert_eq!(event.timing.body_duration_ms, Some(0.0));
 
     let collected = response.into_body().collect().await.unwrap();
@@ -133,7 +136,7 @@ async fn delayed_stream_and_trailers_are_forwarded_without_buffering() {
         Bytes::from_static(b"first-second-third")
     );
 
-    let event = receiver.try_recv().expect("stream completion event");
+    let event = expect_http(receiver.try_recv().expect("stream completion event"));
     let duration = event.timing.duration_ms;
     let first_byte = event.timing.time_to_first_byte_ms.unwrap();
     let body_duration = event.timing.body_duration_ms.unwrap();

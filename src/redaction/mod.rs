@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::{
     config::{CaptureLimits, ConfigError, RedactionConfig},
     core::{
-        event::{QueryScalar, QueryValue},
+        event::{BusinessEvent, QueryScalar, QueryValue},
         telemetry::InternalTelemetry,
     },
 };
@@ -130,6 +130,67 @@ impl Redactor {
         }
 
         self.finish(state.report)
+    }
+
+    /// Redacts and bounds every string and business field before queueing.
+    ///
+    /// The JSON node budget is shared by the complete business event.
+    pub fn redact_business_event(&self, event: &mut BusinessEvent) -> RedactionReport {
+        let mut state = RedactionState::new(self.max_json_nodes);
+
+        if let Some(message) = event.message.as_mut() {
+            self.redact_business_text("message", message, &mut state);
+        }
+
+        for (name, value) in [
+            ("request_id", &mut event.request_id),
+            ("trace_id", &mut event.trace_id),
+            ("span_id", &mut event.span_id),
+            ("module_path", &mut event.module_path),
+        ] {
+            if let Some(value) = value.as_mut() {
+                self.redact_business_text(name, value, &mut state);
+            }
+        }
+
+        self.redact_business_text("target", &mut event.target, &mut state);
+
+        for (name, value) in &mut event.fields {
+            if self.is_sensitive_field(name) {
+                *value = serde_json::Value::String(REDACTED.to_owned());
+                state.report.record_redaction();
+            } else {
+                self.redact_json_value(value, 0, &mut state);
+            }
+        }
+
+        self.finish(state.report)
+    }
+
+    fn redact_business_text(
+        &self,
+        field_name: &str,
+        value: &mut String,
+        state: &mut RedactionState,
+    ) {
+        if self.is_sensitive_field(field_name) {
+            *value = REDACTED.to_owned();
+            state.report.record_redaction();
+            return;
+        }
+
+        if state.remaining_nodes == 0 {
+            *value = TRUNCATED.to_owned();
+            state.report.record_truncation();
+            return;
+        }
+
+        state.remaining_nodes -= 1;
+
+        if let Some(truncated) = truncate_string(value, self.max_string_bytes) {
+            *value = truncated;
+            state.report.record_truncation();
+        }
     }
 
     fn redact_json_value(
