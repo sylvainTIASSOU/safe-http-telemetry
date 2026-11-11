@@ -5,7 +5,9 @@ use std::time::Duration;
 use safe_http_telemetry::{
     config::ServiceConfig,
     core::{
-        event::{CaptureInfo, HttpEvent, RequestInfo, ResponseInfo, TimingInfo},
+        event::{
+            BusinessEvent, CaptureInfo, HttpEvent, LogLevel, RequestInfo, ResponseInfo, TimingInfo,
+        },
         telemetry::InternalTelemetry,
     },
     loki::{
@@ -342,4 +344,61 @@ fn invalid_worker_counts_are_rejected() {
 
         assert!(matches!(result, Err(LokiExporterError::InvalidWorkerCount)));
     }
+}
+
+#[tokio::test]
+async fn business_event_is_exported_with_correlation_metadata() {
+    let (url, mut requests, server) = spawn_server(vec![204]).await;
+    let (queue, telemetry) = queue_with_capacity(4);
+    let handle = LokiExporter::new(exporter_config(url), sample_service(), queue.clone(), 1)
+        .unwrap()
+        .start();
+
+    let mut event = BusinessEvent::new(
+        LogLevel::Info,
+        Some("Order accepted".to_owned()),
+        "orders::service",
+    );
+    event.request_id = Some("request-business-export".to_owned());
+    event.trace_id = Some("4bf92f3577b34da6a3ce929d0e0e4736".to_owned());
+    event.span_id = Some("00f067aa0ba902b7".to_owned());
+    event
+        .fields
+        .insert("order_id".to_owned(), serde_json::Value::from(42_u64));
+    event
+        .fields
+        .insert("password".to_owned(), serde_json::Value::from("[REDACTED]"));
+
+    queue.try_push(event.clone()).unwrap();
+    queue.close();
+    join_workers(handle).await;
+
+    let body = requests.recv().await.unwrap();
+    server.await.unwrap();
+
+    let payload: Value = serde_json::from_slice(&body).unwrap();
+    let streams = payload["streams"].as_array().unwrap();
+    assert_eq!(streams.len(), 1);
+
+    let stream = &streams[0];
+    assert_eq!(stream["stream"]["event_type"], "business");
+    assert_eq!(stream["stream"]["service"], "users-api");
+    assert_eq!(stream["metadata"]["request_id"], "request-business-export");
+    assert_eq!(
+        stream["metadata"]["trace_id"],
+        "4bf92f3577b34da6a3ce929d0e0e4736"
+    );
+    assert_eq!(stream["metadata"]["span_id"], "00f067aa0ba902b7");
+
+    for forbidden in ["request_id", "trace_id", "span_id", "message", "fields"] {
+        assert!(stream["stream"].get(forbidden).is_none());
+    }
+
+    let line = stream["values"][0][1].as_str().unwrap();
+    let decoded: BusinessEvent = serde_json::from_str(line).unwrap();
+
+    assert!(decoded == event);
+    assert_eq!(telemetry.snapshot().exported_events, 1);
+    assert_eq!(telemetry.snapshot().exported_batches, 1);
+    assert_eq!(telemetry.snapshot().failed_batches, 0);
 }
