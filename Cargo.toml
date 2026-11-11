@@ -87,7 +87,7 @@ required-features = ["axum", "tracing"]
 [[example]]
 name = "axum_loki"
 path = "examples/axum_loki.rs"
-required-features = ["axum", "loki", "tracing"]
+required-features = ["axum", "loki", "tracing", "opentelemetry"]
 
 [[test]]
 name = "loki_http_e2e"
