@@ -1,5 +1,8 @@
 #![cfg(feature = "tower")]
 
+mod common;
+
+use common::expect_http;
 use std::{
     convert::Infallible,
     pin::Pin,
@@ -59,7 +62,7 @@ async fn dropping_request_future_emits_one_cancellation_and_releases_state() {
     task.abort();
     let _ = task.await;
 
-    let event = receiver.try_recv().expect("request cancellation event");
+    let event = expect_http(receiver.try_recv().expect("request cancellation event"));
     assert_eq!(event.response.status_code, None);
     assert_eq!(event.response.outcome, Some(ResponseOutcome::Cancelled));
     assert_eq!(event.level, LogLevel::Warn);
@@ -126,7 +129,7 @@ async fn dropping_partial_stream_preserves_known_response_metadata() {
 
     drop(body);
 
-    let event = receiver.try_recv().expect("stream cancellation event");
+    let event = expect_http(receiver.try_recv().expect("stream cancellation event"));
     assert_eq!(event.response.status_code, Some(206));
     assert_eq!(event.response.outcome, Some(ResponseOutcome::Cancelled));
     assert!(event.timing.time_to_first_byte_ms.is_some());
@@ -188,7 +191,7 @@ async fn normal_completion_does_not_emit_a_later_cancellation() {
         .unwrap();
     assert_eq!(collected.to_bytes(), Bytes::from_static(b"complete"));
 
-    let event = receiver.try_recv().expect("normal completion event");
+    let event = expect_http(receiver.try_recv().expect("normal completion event"));
     assert_eq!(event.response.outcome, Some(ResponseOutcome::Success));
 
     let snapshot = telemetry.snapshot();

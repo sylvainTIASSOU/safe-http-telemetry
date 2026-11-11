@@ -6,3 +6,6 @@
 
 #[cfg(feature = "opentelemetry")]
 pub mod propagation;
+
+#[cfg(feature = "tracing")]
+pub mod business;

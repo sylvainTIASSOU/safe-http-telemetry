@@ -1,5 +1,8 @@
 #![cfg(all(feature = "tower", feature = "opentelemetry"))]
 
+mod common;
+
+use common::expect_http;
 use std::{
     convert::Infallible,
     io::{self, Write},
@@ -195,10 +198,12 @@ async fn observed_request(headers: HeaderMap) -> HttpEvent {
     let body = response.into_body().collect().await.unwrap().to_bytes();
     assert_eq!(body.as_ref(), b"ok");
 
-    queue
-        .receiver()
-        .try_recv()
-        .expect("one completed HTTP event must be queued")
+    expect_http(
+        queue
+            .receiver()
+            .try_recv()
+            .expect("one completed HTTP event must be queued"),
+    )
 }
 
 #[derive(Clone, Default)]

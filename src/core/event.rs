@@ -12,6 +12,8 @@ use serde_json::{Number, Value};
 
 pub const HTTP_EVENT_SCHEMA_VERSION: &str = "1.0";
 pub const HTTP_EVENT_NAME: &str = "http.request.completed";
+pub const BUSINESS_EVENT_SCHEMA_VERSION: &str = "1.0";
+pub const BUSINESS_EVENT_NAME: &str = "business.event";
 
 /// One completed HTTP request event.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
@@ -63,6 +65,79 @@ impl HttpEvent {
             timing,
             capture,
         }
+    }
+}
+
+/// One application event captured independently from the HTTP lifecycle.
+///
+/// Fields must be filtered and redacted before the event enters the export
+/// queue. This data-bearing type intentionally does not implement `Debug`.
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+pub struct BusinessEvent {
+    pub schema_version: String,
+    pub event: String,
+    pub level: LogLevel,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trace_id: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub span_id: Option<String>,
+
+    pub target: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub module_path: Option<String>,
+
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub fields: BTreeMap<String, Value>,
+
+    #[serde(default)]
+    pub fields_truncated: bool,
+}
+
+impl BusinessEvent {
+    pub fn new(level: LogLevel, message: Option<String>, target: impl Into<String>) -> Self {
+        Self {
+            schema_version: BUSINESS_EVENT_SCHEMA_VERSION.to_owned(),
+            event: BUSINESS_EVENT_NAME.to_owned(),
+            level,
+            message,
+            request_id: None,
+            trace_id: None,
+            span_id: None,
+            target: target.into(),
+            module_path: None,
+            fields: BTreeMap::new(),
+            fields_truncated: false,
+        }
+    }
+}
+
+/// An already-redacted event accepted by the bounded export pipeline.
+///
+/// This type intentionally does not implement `Debug`.
+#[derive(Clone, PartialEq)]
+pub enum TelemetryEvent {
+    Http(Box<HttpEvent>),
+    Business(Box<BusinessEvent>),
+}
+
+impl From<HttpEvent> for TelemetryEvent {
+    fn from(event: HttpEvent) -> Self {
+        Self::Http(Box::new(event))
+    }
+}
+
+impl From<BusinessEvent> for TelemetryEvent {
+    fn from(event: BusinessEvent) -> Self {
+        Self::Business(Box::new(event))
     }
 }
 
