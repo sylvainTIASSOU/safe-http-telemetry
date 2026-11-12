@@ -259,3 +259,37 @@ fn invalid_methods_are_rejected() {
         Err(PolicyError::InvalidMethod("GET POST".to_owned()))
     );
 }
+
+#[test]
+fn query_and_header_permissions_cannot_elevate_minimal_profile() {
+    let mut policies = RoutePolicySet::new(CaptureProfile::Minimal);
+    policies
+        .add_policy(
+            RoutePolicy::new(RoutePattern::exact("/orders"), CaptureProfile::Minimal)
+                .with_query_capture(true)
+                .with_header_capture(true, true),
+        )
+        .unwrap();
+
+    let decision = policies.resolve("GET", "/orders");
+    assert!(!decision.capture_query);
+    assert!(!decision.capture_request_headers);
+    assert!(!decision.capture_response_headers);
+}
+
+#[test]
+fn excluded_route_disables_all_metadata_capture() {
+    let mut policies = RoutePolicySet::new(CaptureProfile::Detailed);
+    policies
+        .add_policy(
+            RoutePolicy::new(RoutePattern::exact("/private"), CaptureProfile::Detailed).exclude(),
+        )
+        .unwrap();
+
+    let decision = policies.resolve("GET", "/private");
+    assert!(!decision.capture_query);
+    assert!(!decision.capture_request_headers);
+    assert!(!decision.capture_response_headers);
+    assert!(!decision.capture_request_body);
+    assert!(!decision.capture_response_body);
+}

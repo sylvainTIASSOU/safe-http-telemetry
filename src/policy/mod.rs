@@ -30,6 +30,11 @@ impl CaptureProfile {
         matches!(self, Self::Standard | Self::Detailed)
     }
 
+    /// Returns whether filtered request and response header may be captured
+    pub const fn allows_header_capture(self) -> bool {
+        matches!(self, Self::Standard | Self::Detailed)
+    }
+
     /// Returns whether client geolocation may be resolved.
     pub const fn allows_geolocation(self) -> bool {
         matches!(self, Self::Standard | Self::Detailed)
@@ -111,6 +116,9 @@ pub struct RoutePolicy {
     pub excluded: bool,
     pub capture_request_body: Option<bool>,
     pub capture_response_body: Option<bool>,
+    pub capture_query: Option<bool>,
+    pub capture_request_headers: Option<bool>,
+    pub capture_response_headers: Option<bool>,
 }
 
 impl RoutePolicy {
@@ -122,6 +130,9 @@ impl RoutePolicy {
             excluded: false,
             capture_request_body: None,
             capture_response_body: None,
+            capture_query: None,
+            capture_request_headers: None,
+            capture_response_headers: None,
         }
     }
 
@@ -136,6 +147,9 @@ impl RoutePolicy {
         self.excluded = true;
         self.capture_request_body = Some(false);
         self.capture_response_body = Some(false);
+        self.capture_query = Some(false);
+        self.capture_request_headers = Some(false);
+        self.capture_response_headers = Some(false);
         self
     }
 
@@ -145,6 +159,23 @@ impl RoutePolicy {
     pub fn with_body_capture(mut self, request: bool, response: bool) -> Self {
         self.capture_request_body = Some(request);
         self.capture_response_body = Some(response);
+        self
+    }
+
+    /// Restricts query-parameter capture for matching requests.
+    ///
+    /// `True` never elevates the minimal profils.
+    pub fn with_query_capture(mut self, capture: bool) -> Self {
+        self.capture_query = Some(capture);
+        self
+    }
+
+    /// Restricts request and response header capture independently
+    ///
+    /// `true` never elevates the minimal profile
+    pub fn with_header_capture(mut self, request: bool, response: bool) -> Self {
+        self.capture_request_headers = Some(request);
+        self.capture_response_headers = Some(response);
         self
     }
 
@@ -193,6 +224,9 @@ pub struct PolicyDecision {
     pub profile: CaptureProfile,
     pub capture_request_body: bool,
     pub capture_response_body: bool,
+    pub capture_query: bool,
+    pub capture_request_headers: bool,
+    pub capture_response_headers: bool,
 }
 
 impl PolicyDecision {
@@ -202,6 +236,9 @@ impl PolicyDecision {
             profile,
             capture_request_body: profile.allows_body_capture(),
             capture_response_body: profile.allows_body_capture(),
+            capture_query: profile.allows_query_capture(),
+            capture_request_headers: profile.allows_header_capture(),
+            capture_response_headers: profile.allows_header_capture(),
         }
     }
 }
@@ -288,6 +325,9 @@ struct MatchAccumulator {
     excluded: bool,
     request_body_denied: bool,
     response_body_denied: bool,
+    query_denied: bool,
+    request_headers_denied: bool,
+    response_headers_denied: bool,
 }
 
 impl MatchAccumulator {
@@ -297,6 +337,9 @@ impl MatchAccumulator {
             excluded: policy.excluded,
             request_body_denied: policy.capture_request_body == Some(false),
             response_body_denied: policy.capture_response_body == Some(false),
+            query_denied: policy.capture_query == Some(false),
+            request_headers_denied: policy.capture_request_headers == Some(false),
+            response_headers_denied: policy.capture_response_headers == Some(false),
         }
     }
 
@@ -305,16 +348,24 @@ impl MatchAccumulator {
         self.excluded |= policy.excluded;
         self.request_body_denied |= policy.capture_request_body == Some(false);
         self.response_body_denied |= policy.capture_response_body == Some(false);
+        self.query_denied |= policy.capture_query == Some(false);
+        self.request_headers_denied |= policy.capture_request_headers == Some(false);
+        self.response_headers_denied |= policy.capture_response_headers == Some(false);
     }
 
     fn into_decision(self) -> PolicyDecision {
         let bodies_allowed = self.profile.allows_body_capture() && !self.excluded;
+        let query_allowed = self.profile.allows_query_capture() && !self.excluded;
+        let headers_allowed = self.profile.allows_header_capture() && !self.excluded;
 
         PolicyDecision {
             excluded: self.excluded,
             profile: self.profile,
             capture_request_body: bodies_allowed && !self.request_body_denied,
             capture_response_body: bodies_allowed && !self.response_body_denied,
+            capture_query: query_allowed && !self.query_denied,
+            capture_request_headers: headers_allowed && !self.request_headers_denied,
+            capture_response_headers: headers_allowed && !self.response_headers_denied,
         }
     }
 }

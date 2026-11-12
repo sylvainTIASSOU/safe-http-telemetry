@@ -104,3 +104,14 @@ fn string_limit_must_fit_truncation_marker() {
         })
     );
 }
+
+#[test]
+fn zero_header_count_limit_is_rejected() {
+    let mut config = TelemetryConfig::default();
+    config.limits.max_headers = 0;
+
+    assert_eq!(
+        config.validate(),
+        Err(ConfigError::ZeroLimit("max_headers"))
+    );
+}

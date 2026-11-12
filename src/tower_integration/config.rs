@@ -1,12 +1,15 @@
 //! Configuration for the Tower HTTP lifecycle middleware.
 
-use crate::config::CaptureLimits;
+use crate::config::{CaptureLimits, RedactionConfig};
 
 /// Configuration for minimal HTTP lifecycle observation.
 #[derive(Clone, Debug)]
 pub struct MiddlewareConfig {
     /// Bounds applied before HTTP data may enter the event queue.
     pub limits: CaptureLimits,
+
+    /// Field names whose query, header and body values must be redacted.
+    pub redaction: RedactionConfig,
 
     /// Whether a valid incoming `x-request-id` may be reused.
     ///
@@ -22,6 +25,7 @@ impl Default for MiddlewareConfig {
     fn default() -> Self {
         Self {
             limits: CaptureLimits::default(),
+            redaction: RedactionConfig::default(),
             trust_incoming_request_id: false,
             emit_cancellation_events: true,
         }
