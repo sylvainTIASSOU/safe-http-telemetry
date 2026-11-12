@@ -9,6 +9,10 @@ mod body;
 pub mod config;
 mod error;
 mod metadata;
+
+#[cfg(feature = "body-capture")]
+mod request_body;
+
 mod request_id;
 
 use std::{
@@ -23,6 +27,9 @@ use http::{Request, Response, StatusCode};
 use pin_project_lite::pin_project;
 use tower::{Layer, Service};
 use tracing::{field, Level as TracingLevel, Span};
+
+#[cfg(feature = "body-capture")]
+use crate::body_capture::BodyCaptureEngine;
 
 use crate::{
     config::ConfigError,
@@ -47,6 +54,9 @@ pub use error::{ErrorClassifier, RequestFailure, ServerErrorClassifier};
 use crate::tracing_integration::propagation::{extract_trace_context, TraceCorrelation};
 #[cfg(feature = "opentelemetry")]
 use tracing_opentelemetry::OpenTelemetrySpanExt;
+
+#[cfg(feature = "body-capture")]
+pub(crate) use request_body::{ObservedRequestBody, RequestBodyCaptureState};
 
 /// Stable route value used when the HTTP framework exposes no matched route.
 pub const UNMATCHED_ROUTE: &str = "unmatched";
@@ -75,6 +85,8 @@ pub struct HttpTelemetryLayer<R = UnmatchedRoute, C = ServerErrorClassifier> {
     route_resolver: R,
     error_classifier: C,
     metadata: MetadataCapturer,
+    #[cfg(feature = "body-capture")]
+    body_capture: BodyCaptureEngine,
 }
 
 impl HttpTelemetryLayer<UnmatchedRoute, ServerErrorClassifier> {
@@ -96,6 +108,10 @@ impl<R: RouteResolver> HttpTelemetryLayer<R, ServerErrorClassifier> {
     ) -> Result<Self, ConfigError> {
         let metadata = MetadataCapturer::new(&config, queue.telemetry())?;
 
+        #[cfg(feature = "body-capture")]
+        let body_capture =
+            BodyCaptureEngine::new(&config.limits, &config.redaction, queue.telemetry())?;
+
         Ok(Self {
             queue,
             policies,
@@ -103,6 +119,8 @@ impl<R: RouteResolver> HttpTelemetryLayer<R, ServerErrorClassifier> {
             route_resolver,
             error_classifier: ServerErrorClassifier,
             metadata,
+            #[cfg(feature = "body-capture")]
+            body_capture,
         })
     }
 
@@ -115,6 +133,8 @@ impl<R: RouteResolver> HttpTelemetryLayer<R, ServerErrorClassifier> {
             route_resolver: self.route_resolver,
             error_classifier,
             metadata: self.metadata,
+            #[cfg(feature = "body-capture")]
+            body_capture: self.body_capture,
         }
     }
 }
@@ -131,6 +151,8 @@ impl<S, R: Clone, C: Clone> Layer<S> for HttpTelemetryLayer<R, C> {
             route_resolver: self.route_resolver.clone(),
             error_classifier: self.error_classifier.clone(),
             metadata: self.metadata.clone(),
+            #[cfg(feature = "body-capture")]
+            body_capture: self.body_capture.clone(),
             telemetry: self.queue.telemetry(),
         }
     }
@@ -147,6 +169,8 @@ pub struct HttpTelemetry<S, R = UnmatchedRoute, C = ServerErrorClassifier> {
     error_classifier: C,
     metadata: MetadataCapturer,
     telemetry: InternalTelemetry,
+    #[cfg(feature = "body-capture")]
+    body_capture: BodyCaptureEngine,
 }
 
 impl<S, R, C, RequestBody, ResponseBody> Service<Request<RequestBody>> for HttpTelemetry<S, R, C>
@@ -242,6 +266,12 @@ where
         request_info.query = query;
         request_info.headers = headers;
 
+        #[cfg(feature = "body-capture")]
+        let request_body = request
+            .extensions()
+            .get::<RequestBodyCaptureState>()
+            .cloned();
+
         let started_at = Instant::now();
         let inner = span.in_scope(|| self.inner.call(request));
         let context = RequestContext {
@@ -258,6 +288,10 @@ where
             span: span.clone(),
             terminal: false,
             emit_cancellation_events: self.config.emit_cancellation_events,
+            #[cfg(feature = "body-capture")]
+            body_capture: self.body_capture.clone(),
+            #[cfg(feature = "body-capture")]
+            request_body,
         };
 
         HttpTelemetryResponseFuture::observed(inner, context, span, self.error_classifier.clone())
@@ -372,6 +406,10 @@ pub(crate) struct RequestContext {
     span: Span,
     terminal: bool,
     emit_cancellation_events: bool,
+    #[cfg(feature = "body-capture")]
+    body_capture: BodyCaptureEngine,
+    #[cfg(feature = "body-capture")]
+    request_body: Option<RequestBodyCaptureState>,
 }
 
 impl RequestContext {
@@ -471,19 +509,54 @@ impl RequestContext {
         body_duration_ms: Option<f64>,
     ) -> HttpEvent {
         let request = self.request.clone();
+
+        #[cfg(feature = "body-capture")]
+        let mut request = request;
+
         let mut response = ResponseInfo::terminal(status_code, outcome);
         response.headers = self.response_headers.clone();
+
+        let capture = CaptureInfo::default();
+
+        #[cfg(feature = "body-capture")]
+        let mut capture = capture;
+
+        #[cfg(feature = "body-capture")]
+        if let Some(state) = &self.request_body {
+            let captured = state.finish();
+            request.content_type = captured.content_type.clone();
+            request.content_length = captured.content_length;
+
+            if captured.failed {
+                // A partial prefix from a failed stream is never exported.
+                capture.request_body_status =
+                    Some(crate::core::event::BodyCaptureStatus::ParseError);
+                capture.request_body_truncated = true;
+                self.telemetry.record_parse_error();
+            } else if captured.bytes.is_empty() && !captured.ended {
+                // The application did not consume the request stream.
+                capture.request_body_status = Some(crate::core::event::BodyCaptureStatus::Omitted);
+                self.telemetry.record_body_omission();
+            } else {
+                let outcome = self.body_capture.capture(
+                    crate::body_capture::BodySource::Request,
+                    captured.content_type.as_deref(),
+                    captured.content_encoding.as_deref(),
+                    &captured.bytes,
+                    captured.truncated || !captured.ended,
+                );
+
+                request.body = outcome.body;
+                capture.request_body_status = Some(outcome.status);
+                capture.request_body_truncated = outcome.truncated;
+            }
+        }
+
         let mut timing = TimingInfo::new(self.started_at.elapsed().as_secs_f64() * 1_000.0);
         timing.time_to_first_byte_ms = time_to_first_byte_ms;
         timing.body_duration_ms = body_duration_ms;
 
-        let mut event = HttpEvent::new(
-            self.request_id.clone(),
-            request,
-            response,
-            timing,
-            CaptureInfo::default(),
-        );
+        let mut event = HttpEvent::new(self.request_id.clone(), request, response, timing, capture);
         event.trace_id = self.trace_id.clone();
         event.span_id = self.span_id.clone();
 
