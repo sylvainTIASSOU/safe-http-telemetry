@@ -8,9 +8,11 @@
 mod body;
 pub mod config;
 mod error;
+mod metadata;
 mod request_id;
 
 use std::{
+    collections::BTreeMap,
     future::Future,
     pin::Pin,
     task::{Context, Poll},
@@ -32,9 +34,10 @@ use crate::{
         telemetry::InternalTelemetry,
     },
     policy::RoutePolicySet,
-    redaction::TRUNCATED,
     runtime::queue::BoundedEventQueue,
 };
+
+use metadata::{bounded_value, MetadataCapturer};
 
 pub use body::ObservedBody;
 pub use config::MiddlewareConfig;
@@ -71,6 +74,7 @@ pub struct HttpTelemetryLayer<R = UnmatchedRoute, C = ServerErrorClassifier> {
     config: MiddlewareConfig,
     route_resolver: R,
     error_classifier: C,
+    metadata: MetadataCapturer,
 }
 
 impl HttpTelemetryLayer<UnmatchedRoute, ServerErrorClassifier> {
@@ -90,7 +94,7 @@ impl<R: RouteResolver> HttpTelemetryLayer<R, ServerErrorClassifier> {
         config: MiddlewareConfig,
         route_resolver: R,
     ) -> Result<Self, ConfigError> {
-        config.limits.validate()?;
+        let metadata = MetadataCapturer::new(&config, queue.telemetry())?;
 
         Ok(Self {
             queue,
@@ -98,6 +102,7 @@ impl<R: RouteResolver> HttpTelemetryLayer<R, ServerErrorClassifier> {
             config,
             route_resolver,
             error_classifier: ServerErrorClassifier,
+            metadata,
         })
     }
 
@@ -109,6 +114,7 @@ impl<R: RouteResolver> HttpTelemetryLayer<R, ServerErrorClassifier> {
             config: self.config,
             route_resolver: self.route_resolver,
             error_classifier,
+            metadata: self.metadata,
         }
     }
 }
@@ -124,6 +130,7 @@ impl<S, R: Clone, C: Clone> Layer<S> for HttpTelemetryLayer<R, C> {
             config: self.config.clone(),
             route_resolver: self.route_resolver.clone(),
             error_classifier: self.error_classifier.clone(),
+            metadata: self.metadata.clone(),
             telemetry: self.queue.telemetry(),
         }
     }
@@ -138,6 +145,7 @@ pub struct HttpTelemetry<S, R = UnmatchedRoute, C = ServerErrorClassifier> {
     config: MiddlewareConfig,
     route_resolver: R,
     error_classifier: C,
+    metadata: MetadataCapturer,
     telemetry: InternalTelemetry,
 }
 
@@ -171,7 +179,7 @@ where
 
         self.telemetry.record_request_started();
 
-        let max_bytes = self.config.limits.max_string_bytes;
+        let max_bytes = self.metadata.limits().max_string_bytes;
         let method = bounded_value(request.method().as_str(), max_bytes, &self.telemetry);
         let path = bounded_value(request.uri().path(), max_bytes, &self.telemetry);
         let route = self
@@ -219,15 +227,31 @@ where
             span.record("span_id", span_id);
         }
 
+        let query = if policy.capture_query {
+            self.metadata.capture_query(request.uri().query())
+        } else {
+            BTreeMap::new()
+        };
+
+        let headers = if policy.capture_request_headers {
+            self.metadata.capture_headers(request.headers())
+        } else {
+            BTreeMap::new()
+        };
+        let mut request_info = RequestInfo::new(method.clone(), route.clone(), path);
+        request_info.query = query;
+        request_info.headers = headers;
+
         let started_at = Instant::now();
         let inner = span.in_scope(|| self.inner.call(request));
         let context = RequestContext {
             request_id,
             trace_id,
             span_id,
-            method,
-            route,
-            path,
+            request: request_info,
+            response_headers: BTreeMap::new(),
+            capture_response_headers: policy.capture_response_headers,
+            metadata: self.metadata.clone(),
             started_at,
             queue: self.queue.clone(),
             telemetry: self.telemetry.clone(),
@@ -294,7 +318,8 @@ where
                 let (parts, body) = response.into_parts();
 
                 let response = match this.context.take() {
-                    Some(request) => {
+                    Some(mut request) => {
+                        request.capture_response_headers(&parts.headers);
                         let response_received_at = Instant::now();
                         let time_to_first_byte_ms =
                             request.time_to_first_byte_ms(response_received_at);
@@ -337,9 +362,10 @@ pub(crate) struct RequestContext {
     request_id: String,
     trace_id: Option<String>,
     span_id: Option<String>,
-    method: String,
-    route: String,
-    path: String,
+    request: RequestInfo,
+    response_headers: BTreeMap<String, String>,
+    capture_response_headers: bool,
+    metadata: MetadataCapturer,
     started_at: Instant,
     queue: BoundedEventQueue,
     telemetry: InternalTelemetry,
@@ -349,6 +375,12 @@ pub(crate) struct RequestContext {
 }
 
 impl RequestContext {
+    fn capture_response_headers(&mut self, headers: &http::HeaderMap) {
+        if self.capture_response_headers {
+            self.response_headers = self.metadata.capture_headers(headers);
+        }
+    }
+
     pub(crate) fn time_to_first_byte_ms(&self, response_received_at: Instant) -> f64 {
         response_received_at
             .saturating_duration_since(self.started_at)
@@ -438,8 +470,9 @@ impl RequestContext {
         time_to_first_byte_ms: Option<f64>,
         body_duration_ms: Option<f64>,
     ) -> HttpEvent {
-        let request = RequestInfo::new(self.method.clone(), self.route.clone(), self.path.clone());
-        let response = ResponseInfo::terminal(status_code, outcome);
+        let request = self.request.clone();
+        let mut response = ResponseInfo::terminal(status_code, outcome);
+        response.headers = self.response_headers.clone();
         let mut timing = TimingInfo::new(self.started_at.elapsed().as_secs_f64() * 1_000.0);
         timing.time_to_first_byte_ms = time_to_first_byte_ms;
         timing.body_duration_ms = body_duration_ms;
@@ -544,23 +577,4 @@ fn outcome_name(event: &HttpEvent) -> &'static str {
         Some(crate::core::event::ResponseOutcome::Timeout) => "timeout",
         None => "unknown",
     }
-}
-
-fn bounded_value(value: &str, max_bytes: usize, telemetry: &InternalTelemetry) -> String {
-    if value.len() <= max_bytes {
-        return value.to_owned();
-    }
-
-    let prefix_budget = max_bytes - TRUNCATED.len();
-    let mut prefix_end = prefix_budget.min(value.len());
-
-    while !value.is_char_boundary(prefix_end) {
-        prefix_end -= 1;
-    }
-
-    let mut truncated = String::with_capacity(max_bytes);
-    truncated.push_str(&value[..prefix_end]);
-    truncated.push_str(TRUNCATED);
-    telemetry.record_truncations(1);
-    truncated
 }
