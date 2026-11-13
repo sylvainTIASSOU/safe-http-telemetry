@@ -13,6 +13,9 @@ mod metadata;
 #[cfg(feature = "body-capture")]
 mod request_body;
 
+#[cfg(feature = "body-capture")]
+mod response_body;
+
 mod request_id;
 
 use std::{
@@ -57,6 +60,9 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 #[cfg(feature = "body-capture")]
 pub(crate) use request_body::{ObservedRequestBody, RequestBodyCaptureState};
+
+#[cfg(feature = "body-capture")]
+use response_body::ResponseBodyCaptureState;
 
 /// Stable route value used when the HTTP framework exposes no matched route.
 pub const UNMATCHED_ROUTE: &str = "unmatched";
@@ -292,6 +298,14 @@ where
             body_capture: self.body_capture.clone(),
             #[cfg(feature = "body-capture")]
             request_body,
+            #[cfg(feature = "body-capture")]
+            capture_response_body: policy.capture_response_body,
+            #[cfg(feature = "body-capture")]
+            response_body_limit: self.config.limits.max_response_body_bytes,
+            #[cfg(feature = "body-capture")]
+            response_header_limit: self.config.limits.max_header_value_bytes,
+            #[cfg(feature = "body-capture")]
+            response_body: None,
         };
 
         HttpTelemetryResponseFuture::observed(inner, context, span, self.error_classifier.clone())
@@ -352,17 +366,27 @@ where
                 let (parts, body) = response.into_parts();
 
                 let response = match this.context.take() {
-                    Some(mut request) => {
+                    Some(request) => {
+                        let mut request = request;
                         request.capture_response_headers(&parts.headers);
+
+                        let body_is_end_stream = body.is_end_stream();
+
+                        #[cfg(feature = "body-capture")]
+                        request.prepare_response_body(&parts.headers, body_is_end_stream);
+
                         let response_received_at = Instant::now();
                         let time_to_first_byte_ms =
                             request.time_to_first_byte_ms(response_received_at);
 
-                        if body.is_end_stream() {
+                        if body_is_end_stream {
                             request.complete_body(&*this.span, status, time_to_first_byte_ms, 0.0);
 
                             Response::from_parts(parts, ObservedBody::finished(body))
                         } else {
+                            #[cfg(feature = "body-capture")]
+                            let response_body = request.response_body.clone();
+
                             let observed = ObservedBody::observed(
                                 body,
                                 request,
@@ -370,6 +394,8 @@ where
                                 status,
                                 response_received_at,
                                 time_to_first_byte_ms,
+                                #[cfg(feature = "body-capture")]
+                                response_body,
                             );
 
                             Response::from_parts(parts, observed)
@@ -410,6 +436,14 @@ pub(crate) struct RequestContext {
     body_capture: BodyCaptureEngine,
     #[cfg(feature = "body-capture")]
     request_body: Option<RequestBodyCaptureState>,
+    #[cfg(feature = "body-capture")]
+    capture_response_body: bool,
+    #[cfg(feature = "body-capture")]
+    response_body_limit: usize,
+    #[cfg(feature = "body-capture")]
+    response_header_limit: usize,
+    #[cfg(feature = "body-capture")]
+    response_body: Option<ResponseBodyCaptureState>,
 }
 
 impl RequestContext {
@@ -417,6 +451,26 @@ impl RequestContext {
         if self.capture_response_headers {
             self.response_headers = self.metadata.capture_headers(headers);
         }
+    }
+
+    #[cfg(feature = "body-capture")]
+    fn prepare_response_body(&mut self, headers: &http::HeaderMap, ended: bool) {
+        if !self.capture_response_body {
+            return;
+        }
+
+        let capture = ResponseBodyCaptureState::new(
+            headers,
+            self.response_header_limit,
+            self.response_body_limit,
+            &self.telemetry,
+        );
+
+        if ended {
+            capture.end();
+        }
+
+        self.response_body = Some(capture);
     }
 
     pub(crate) fn time_to_first_byte_ms(&self, response_received_at: Instant) -> f64 {
@@ -549,6 +603,35 @@ impl RequestContext {
                 request.body = outcome.body;
                 capture.request_body_status = Some(outcome.status);
                 capture.request_body_truncated = outcome.truncated;
+            }
+        }
+
+        #[cfg(feature = "body-capture")]
+        if let Some(state) = &self.response_body {
+            let captured = state.finish();
+            response.content_type = captured.content_type.clone();
+            response.content_length = captured.content_length;
+
+            if captured.failed {
+                capture.response_body_status =
+                    Some(crate::core::event::BodyCaptureStatus::ParseError);
+                capture.response_body_truncated = true;
+                self.telemetry.record_parse_error();
+            } else if captured.bytes.is_empty() && !captured.ended {
+                capture.response_body_status = Some(crate::core::event::BodyCaptureStatus::Omitted);
+                self.telemetry.record_body_omission();
+            } else {
+                let outcome = self.body_capture.capture(
+                    crate::body_capture::BodySource::Response,
+                    captured.content_type.as_deref(),
+                    captured.content_encoding.as_deref(),
+                    &captured.bytes,
+                    captured.truncated || !captured.ended,
+                );
+
+                response.body = outcome.body;
+                capture.response_body_status = Some(outcome.status);
+                capture.response_body_truncated = outcome.truncated;
             }
         }
 
