@@ -32,7 +32,14 @@ fn queue() -> BoundedEventQueue {
     BoundedEventQueue::new(QueueConfig::new(8), InternalTelemetry::default()).unwrap()
 }
 
-fn config(database_path: impl Into<std::path::PathBuf>) -> MiddlewareConfig {
+fn bundled_config() -> MiddlewareConfig {
+    MiddlewareConfig {
+        geolocation: Some(GeolocationConfig::bundled()),
+        ..MiddlewareConfig::default()
+    }
+}
+
+fn external_config(database_path: impl Into<std::path::PathBuf>) -> MiddlewareConfig {
     MiddlewareConfig {
         geolocation: Some(GeolocationConfig::new(database_path)),
         ..MiddlewareConfig::default()
@@ -58,7 +65,7 @@ fn layer_startup_maps_database_errors_without_exposing_the_path() {
     let result = HttpTelemetryLayer::new(
         queue(),
         RoutePolicySet::new(CaptureProfile::Standard),
-        config(&path),
+        external_config(&path),
     );
 
     let error = match result {
@@ -74,14 +81,11 @@ fn layer_startup_maps_database_errors_without_exposing_the_path() {
 }
 
 #[tokio::test]
-#[ignore = "requires SAFE_HTTP_TEST_MMDB to point to a local GeoIP2/GeoLite2 database"]
-async fn real_mmdb_enriches_standard_http_events_and_shares_the_cache() {
-    let path = std::env::var_os("SAFE_HTTP_TEST_MMDB")
-        .expect("SAFE_HTTP_TEST_MMDB must name a local MMDB file");
+async fn bundled_mmdb_enriches_standard_http_events_and_shares_the_cache() {
     let queue = queue();
     let receiver = queue.receiver();
     let telemetry = queue.telemetry();
-    let mut config = config(path);
+    let mut config = bundled_config();
     config.client_ip.trusted_proxies = vec!["10.0.0.0/8".parse().unwrap()];
     let app = Router::new()
         .route("/orders/{id}", get(|| async { StatusCode::OK }))
@@ -106,10 +110,7 @@ async fn real_mmdb_enriches_standard_http_events_and_shares_the_cache() {
 }
 
 #[tokio::test]
-#[ignore = "requires SAFE_HTTP_TEST_MMDB to point to a local GeoIP2/GeoLite2 database"]
-async fn minimal_profile_never_queries_the_real_mmdb() {
-    let path = std::env::var_os("SAFE_HTTP_TEST_MMDB")
-        .expect("SAFE_HTTP_TEST_MMDB must name a local MMDB file");
+async fn minimal_profile_never_queries_the_bundled_mmdb() {
     let queue = queue();
     let receiver = queue.receiver();
     let telemetry = queue.telemetry();
@@ -119,7 +120,7 @@ async fn minimal_profile_never_queries_the_real_mmdb() {
             axum_telemetry_layer(
                 queue,
                 RoutePolicySet::new(CaptureProfile::Minimal),
-                config(path),
+                bundled_config(),
             )
             .unwrap(),
         );

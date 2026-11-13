@@ -13,7 +13,7 @@ Safe, bounded HTTP telemetry for Axum, Tower, `tracing`, OpenTelemetry and Grafa
 - Rust edition: 2021
 - Initial HTTP target: Axum through Tower
 - Log format: versioned JSON
-- Geolocation: local MMDB database without synchronous external requests
+- Geolocation: bundled DB-IP City Lite database with local lookups and no synchronous external requests
 
 ## Axum integration
 
@@ -73,3 +73,23 @@ cargo test --locked --all-targets --all-features
 cargo clippy --locked --all-targets --all-features -- -D warnings
 cargo fmt --all -- --check
 cargo doc --locked --no-deps --all-features
+
+
+mkdir -p data
+
+curl --fail --location \
+  "https://download.db-ip.com/free/dbip-city-lite-2026-11.mmdb.gz" \
+  --output /tmp/dbip-city-lite-2026-11.mmdb.gz
+
+gzip --test /tmp/dbip-city-lite-2026-11.mmdb.gz
+
+gzip -dc /tmp/dbip-city-lite-2026-11.mmdb.gz \
+  > data/dbip-city-lite-2026-11.mmdb
+
+printf '%s  %s\n' \
+  'a6f14e8da5565c713cdda9f1959a904b2eb88337' \
+  'data/dbip-city-lite-2026-11.mmdb' \
+  | sha1sum -c -
+
+test "$(stat -c %s data/dbip-city-lite-2026-11.mmdb)" = "126873350"
+

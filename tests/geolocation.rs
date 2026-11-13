@@ -28,9 +28,11 @@ fn temporary_database(contents: &[u8]) -> PathBuf {
 }
 
 #[test]
-fn defaults_are_valid_and_retain_only_country_fields() {
-    let config = GeolocationConfig::new("local.mmdb");
+fn bundled_defaults_are_valid_and_retain_only_country_fields() {
+    let config = GeolocationConfig::bundled();
 
+    assert_eq!(config, GeolocationConfig::default());
+    assert_eq!(config.database_path, None);
     assert_eq!(config.validate(), Ok(()));
     assert_eq!(config.cache_capacity, 10_000);
     assert_eq!(config.cache_ttl, Duration::from_secs(300));
@@ -91,6 +93,20 @@ fn unsafe_or_empty_configuration_is_rejected() {
 }
 
 #[test]
+fn bundled_database_loading_respects_the_size_limit() {
+    let mut config = GeolocationConfig::bundled();
+    config.max_database_bytes = 8;
+    let telemetry = InternalTelemetry::new();
+
+    let error = match GeolocationEngine::open(&config, telemetry.clone()) {
+        Err(error) => error,
+        Ok(_) => panic!("oversized bundled database was accepted"),
+    };
+    assert_eq!(error, GeolocationError::DatabaseTooLarge { limit: 8 });
+    assert_eq!(telemetry.snapshot().geolocation_errors, 1);
+}
+
+#[test]
 fn database_loading_is_bounded_and_counted() {
     let path = temporary_database(b"0123456789abcdef");
     let mut config = GeolocationConfig::new(&path);
@@ -143,8 +159,29 @@ fn geolocation_counters_are_shared_by_cloned_telemetry_handles() {
 }
 
 #[test]
+fn bundled_mmdb_lookup_uses_the_bounded_cache() {
+    let config = GeolocationConfig::bundled();
+    let telemetry = InternalTelemetry::new();
+    let engine = match GeolocationEngine::open(&config, telemetry.clone()) {
+        Ok(engine) => engine,
+        Err(error) => panic!("bundled MMDB startup failed: {error}"),
+    };
+    let address = IpAddr::from([8, 8, 8, 8]);
+
+    let first = engine.lookup(address);
+    let second = engine.lookup(address);
+
+    assert!(first.is_some());
+    assert!(first == second);
+    let snapshot = telemetry.snapshot();
+    assert_eq!(snapshot.geolocation_cache_misses, 1);
+    assert_eq!(snapshot.geolocation_cache_hits, 1);
+    assert_eq!(snapshot.geolocation_errors, 0);
+}
+
+#[test]
 #[ignore = "requires SAFE_HTTP_TEST_MMDB to point to a local GeoIP2/GeoLite2 database"]
-fn real_local_mmdb_lookup_uses_the_bounded_cache() {
+fn external_local_mmdb_lookup_uses_the_bounded_cache() {
     let path = std::env::var_os("SAFE_HTTP_TEST_MMDB")
         .expect("SAFE_HTTP_TEST_MMDB must name a local MMDB file");
     let config = GeolocationConfig::new(path);
@@ -160,7 +197,6 @@ fn real_local_mmdb_lookup_uses_the_bounded_cache() {
 
     assert!(first.is_some());
     assert!(first == second);
-
     let snapshot = telemetry.snapshot();
     assert_eq!(snapshot.geolocation_cache_misses, 1);
     assert_eq!(snapshot.geolocation_cache_hits, 1);

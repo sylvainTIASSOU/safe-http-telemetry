@@ -1,9 +1,11 @@
 //! Local MMDB geolocation with bounded loading and caching.
 //!
+//! The default database is the DB-IP City Lite release embedded in this crate.
 //! Lookups never perform network I/O. Database loading happens once during
 //! engine construction, and lookup failures degrade to an absent result.
 
 use std::{
+    borrow::Cow,
     collections::BTreeMap,
     error::Error,
     fmt,
@@ -23,10 +25,17 @@ const DEFAULT_CACHE_CAPACITY: usize = 10_000;
 const DEFAULT_MAX_DATABASE_BYTES: u64 = 128 * 1024 * 1024;
 const DEFAULT_MAX_STRING_BYTES: usize = 256;
 
-/// Configuration for a local GeoIP2/GeoLite2 City or Country database.
+const BUNDLED_DATABASE: &[u8] = include_bytes!("../../data/dbip-city-lite-2026-11.mmdb");
+
+/// Release month of the DB-IP City Lite database embedded in this crate.
+pub const BUNDLED_DATABASE_RELEASE: &str = "2026-11";
+
+type Database = Cow<'static, [u8]>;
+/// Configuration for the bundled DB-IP database or an optional local MMDB.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GeolocationConfig {
-    pub database_path: PathBuf,
+    /// Optional external database. `None` selects the bundled DB-IP release.
+    pub database_path: Option<PathBuf>,
     pub cache_capacity: usize,
     pub cache_ttl: Duration,
     pub max_database_bytes: u64,
@@ -35,9 +44,10 @@ pub struct GeolocationConfig {
 }
 
 impl GeolocationConfig {
-    pub fn new(database_path: impl Into<PathBuf>) -> Self {
+    /// Uses the DB-IP City Lite release embedded in this crate.
+    pub fn bundled() -> Self {
         Self {
-            database_path: database_path.into(),
+            database_path: None,
             cache_capacity: DEFAULT_CACHE_CAPACITY,
             cache_ttl: Duration::from_secs(300),
             max_database_bytes: DEFAULT_MAX_DATABASE_BYTES,
@@ -46,8 +56,20 @@ impl GeolocationConfig {
         }
     }
 
+    /// Overrides the bundled database with an external local MMDB.
+    pub fn new(database_path: impl Into<PathBuf>) -> Self {
+        Self {
+            database_path: Some(database_path.into()),
+            ..Self::bundled()
+        }
+    }
+
     pub fn validate(&self) -> Result<(), GeolocationConfigError> {
-        if self.database_path.as_os_str().is_empty() {
+        if self
+            .database_path
+            .as_ref()
+            .is_some_and(|path| path.as_os_str().is_empty())
+        {
             return Err(GeolocationConfigError::EmptyDatabasePath);
         }
         if self.cache_capacity == 0 {
@@ -67,6 +89,12 @@ impl GeolocationConfig {
         }
 
         Ok(())
+    }
+}
+
+impl Default for GeolocationConfig {
+    fn default() -> Self {
+        Self::bundled()
     }
 }
 
@@ -175,7 +203,7 @@ impl From<GeolocationConfigError> for GeolocationError {
 /// This data-bearing type intentionally does not implement `Debug`.
 #[derive(Clone)]
 pub struct GeolocationEngine {
-    reader: Arc<Reader<Vec<u8>>>,
+    reader: Arc<Reader<Database>>,
     cache: Arc<Mutex<BoundedCache>>,
     telemetry: InternalTelemetry,
     cache_ttl: Duration,
@@ -184,20 +212,20 @@ pub struct GeolocationEngine {
 }
 
 impl GeolocationEngine {
-    /// Loads and validates a local database without using memory mapping.
+    /// Loads and validates the selected database without using memory mapping.
     pub fn open(
         config: &GeolocationConfig,
         telemetry: InternalTelemetry,
     ) -> Result<Self, GeolocationError> {
         config.validate()?;
-        let bytes = match read_database(&config.database_path, config.max_database_bytes) {
-            Ok(bytes) => bytes,
+        let database = match load_database(config) {
+            Ok(database) => database,
             Err(error) => {
                 telemetry.record_geolocation_error();
                 return Err(error);
             }
         };
-        let reader = match Reader::from_source(bytes) {
+        let reader = match Reader::from_source(database) {
             Ok(reader) => reader,
             Err(_) => {
                 telemetry.record_geolocation_error();
@@ -296,6 +324,20 @@ fn map_record(
     }
 
     (info != GeolocationInfo::default()).then_some(info)
+}
+
+fn load_database(config: &GeolocationConfig) -> Result<Database, GeolocationError> {
+    if let Some(path) = &config.database_path {
+        return read_database(path, config.max_database_bytes).map(Cow::Owned);
+    }
+
+    if BUNDLED_DATABASE.len() as u64 > config.max_database_bytes {
+        return Err(GeolocationError::DatabaseTooLarge {
+            limit: config.max_database_bytes,
+        });
+    }
+
+    Ok(Cow::Borrowed(BUNDLED_DATABASE))
 }
 
 fn read_database(path: &Path, limit: u64) -> Result<Vec<u8>, GeolocationError> {
