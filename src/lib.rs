@@ -13,6 +13,7 @@ pub mod body_capture;
 
 pub mod config;
 pub mod core;
+#[cfg(feature = "geolocation")]
 pub mod geolocation;
 #[cfg(feature = "loki")]
 pub mod loki;

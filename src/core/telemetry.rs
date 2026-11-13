@@ -100,6 +100,24 @@ impl InternalTelemetry {
         self.counters.parse_errors.fetch_add(1, Ordering::Relaxed);
     }
 
+    pub fn record_geolocation_cache_hit(&self) {
+        self.counters
+            .geolocation_cache_hits
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_geolocation_cache_miss(&self) {
+        self.counters
+            .geolocation_cache_misses
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_geolocation_error(&self) {
+        self.counters
+            .geolocation_errors
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
     pub fn record_policy_denial(&self) {
         self.counters
             .rejected_by_policy
@@ -225,6 +243,12 @@ impl InternalTelemetry {
             truncated_values: self.counters.truncated_values.load(Ordering::Relaxed),
             omitted_bodies: self.counters.omitted_bodies.load(Ordering::Relaxed),
             parse_errors: self.counters.parse_errors.load(Ordering::Relaxed),
+            geolocation_cache_hits: self.counters.geolocation_cache_hits.load(Ordering::Relaxed),
+            geolocation_cache_misses: self
+                .counters
+                .geolocation_cache_misses
+                .load(Ordering::Relaxed),
+            geolocation_errors: self.counters.geolocation_errors.load(Ordering::Relaxed),
             rejected_by_policy: self.counters.rejected_by_policy.load(Ordering::Relaxed),
             accepted_events: self.counters.accepted_events.load(Ordering::Relaxed),
             rejected_events: self.counters.rejected_events.load(Ordering::Relaxed),
@@ -267,6 +291,9 @@ struct Counters {
     truncated_values: AtomicU64,
     omitted_bodies: AtomicU64,
     parse_errors: AtomicU64,
+    geolocation_cache_hits: AtomicU64,
+    geolocation_cache_misses: AtomicU64,
+    geolocation_errors: AtomicU64,
     rejected_by_policy: AtomicU64,
     accepted_events: AtomicU64,
     rejected_events: AtomicU64,
@@ -298,6 +325,9 @@ pub struct InternalTelemetrySnapshot {
     pub truncated_values: u64,
     pub omitted_bodies: u64,
     pub parse_errors: u64,
+    pub geolocation_cache_hits: u64,
+    pub geolocation_cache_misses: u64,
+    pub geolocation_errors: u64,
     pub rejected_by_policy: u64,
     pub accepted_events: u64,
     pub rejected_events: u64,
