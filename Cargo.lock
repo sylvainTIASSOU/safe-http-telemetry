@@ -1023,6 +1023,7 @@ dependencies = [
  "http",
  "http-body",
  "http-body-util",
+ "ipnet",
  "maxminddb",
  "opentelemetry",
  "opentelemetry_sdk",

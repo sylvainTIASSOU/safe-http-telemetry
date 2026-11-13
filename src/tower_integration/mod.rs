@@ -6,6 +6,7 @@
 //! on the application request path.
 
 mod body;
+mod client_ip;
 pub mod config;
 mod error;
 mod metadata;
@@ -34,6 +35,9 @@ use tracing::{field, Level as TracingLevel, Span};
 #[cfg(feature = "body-capture")]
 use crate::body_capture::BodyCaptureEngine;
 
+#[cfg(feature = "geolocation")]
+use crate::geolocation::GeolocationEngine;
+
 use crate::{
     config::ConfigError,
     core::{
@@ -50,7 +54,7 @@ use crate::{
 use metadata::{bounded_value, MetadataCapturer};
 
 pub use body::ObservedBody;
-pub use config::MiddlewareConfig;
+pub use config::{ClientIpConfig, MiddlewareConfig};
 pub use error::{ErrorClassifier, RequestFailure, ServerErrorClassifier};
 
 #[cfg(feature = "opentelemetry")]
@@ -93,6 +97,8 @@ pub struct HttpTelemetryLayer<R = UnmatchedRoute, C = ServerErrorClassifier> {
     metadata: MetadataCapturer,
     #[cfg(feature = "body-capture")]
     body_capture: BodyCaptureEngine,
+    #[cfg(feature = "geolocation")]
+    geolocation: Option<GeolocationEngine>,
 }
 
 impl HttpTelemetryLayer<UnmatchedRoute, ServerErrorClassifier> {
@@ -112,12 +118,20 @@ impl<R: RouteResolver> HttpTelemetryLayer<R, ServerErrorClassifier> {
         config: MiddlewareConfig,
         route_resolver: R,
     ) -> Result<Self, ConfigError> {
+        config.limits.validate()?;
+        config.client_ip.validate()?;
         let metadata = MetadataCapturer::new(&config, queue.telemetry())?;
 
         #[cfg(feature = "body-capture")]
         let body_capture =
             BodyCaptureEngine::new(&config.limits, &config.redaction, queue.telemetry())?;
 
+        #[cfg(feature = "geolocation")]
+        let geolocation = config
+            .geolocation
+            .as_ref()
+            .map(|config| GeolocationEngine::open(config, queue.telemetry()))
+            .transpose()?;
         Ok(Self {
             queue,
             policies,
@@ -127,6 +141,8 @@ impl<R: RouteResolver> HttpTelemetryLayer<R, ServerErrorClassifier> {
             metadata,
             #[cfg(feature = "body-capture")]
             body_capture,
+            #[cfg(feature = "geolocation")]
+            geolocation,
         })
     }
 
@@ -141,6 +157,8 @@ impl<R: RouteResolver> HttpTelemetryLayer<R, ServerErrorClassifier> {
             metadata: self.metadata,
             #[cfg(feature = "body-capture")]
             body_capture: self.body_capture,
+            #[cfg(feature = "geolocation")]
+            geolocation: self.geolocation.clone(),
         }
     }
 }
@@ -160,6 +178,8 @@ impl<S, R: Clone, C: Clone> Layer<S> for HttpTelemetryLayer<R, C> {
             #[cfg(feature = "body-capture")]
             body_capture: self.body_capture.clone(),
             telemetry: self.queue.telemetry(),
+            #[cfg(feature = "geolocation")]
+            geolocation: self.geolocation.clone(),
         }
     }
 }
@@ -177,6 +197,8 @@ pub struct HttpTelemetry<S, R = UnmatchedRoute, C = ServerErrorClassifier> {
     telemetry: InternalTelemetry,
     #[cfg(feature = "body-capture")]
     body_capture: BodyCaptureEngine,
+    #[cfg(feature = "geolocation")]
+    geolocation: Option<GeolocationEngine>,
 }
 
 impl<S, R, C, RequestBody, ResponseBody> Service<Request<RequestBody>> for HttpTelemetry<S, R, C>
@@ -271,6 +293,23 @@ where
         let mut request_info = RequestInfo::new(method.clone(), route.clone(), path);
         request_info.query = query;
         request_info.headers = headers;
+
+        #[cfg(feature = "geolocation")]
+        let geolocation_enabled = self.geolocation.is_some();
+        #[cfg(not(feature = "geolocation"))]
+        let geolocation_enabled = false;
+
+        if policy.profile.allows_geolocation()
+            && (self.config.capture_client_ip || geolocation_enabled)
+        {
+            let address = client_ip::resolve(&request, &self.config.client_ip);
+            request_info.client_ip = address.map(|address| address.to_string());
+
+            #[cfg(feature = "geolocation")]
+            if let (Some(engine), Some(address)) = (&self.geolocation, address) {
+                request_info.geolocation = engine.lookup(address);
+            }
+        }
 
         #[cfg(feature = "body-capture")]
         let request_body = request

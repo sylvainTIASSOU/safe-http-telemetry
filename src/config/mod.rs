@@ -5,6 +5,9 @@
 
 use std::{collections::BTreeSet, error::Error, fmt};
 
+#[cfg(feature = "geolocation")]
+use crate::geolocation::GeolocationError;
+
 const KIB: usize = 1024; // 1 KiB = 1024 bytes
 const MIB: usize = 1024 * KIB; // 1 MiB = 1024 KiB = 1,048,576 bytes
 const MIN_MARKER_BYTES: usize = 11;
@@ -209,6 +212,8 @@ pub enum ConfigError {
         field: &'static str,
         minimum: usize,
     },
+    #[cfg(feature = "geolocation")]
+    Geolocation(GeolocationError),
 }
 
 impl fmt::Display for ConfigError {
@@ -238,8 +243,25 @@ impl fmt::Display for ConfigError {
                 formatter,
                 "capture limit `{field}` must be at least {minimum} bytes"
             ),
+            #[cfg(feature = "geolocation")]
+            Self::Geolocation(error) => write!(formatter, "invalid geolocation setup: {error}"),
         }
     }
 }
 
-impl Error for ConfigError {}
+impl Error for ConfigError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            #[cfg(feature = "geolocation")]
+            Self::Geolocation(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+
+#[cfg(feature = "geolocation")]
+impl From<GeolocationError> for ConfigError {
+    fn from(error: GeolocationError) -> Self {
+        Self::Geolocation(error)
+    }
+}
