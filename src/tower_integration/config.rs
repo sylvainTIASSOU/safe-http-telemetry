@@ -71,8 +71,8 @@ pub struct MiddlewareConfig {
     /// Trusted-proxy policy used for client-IP resolution.
     pub client_ip: ClientIpConfig,
 
-    /// Optional local MMDB configuration. The database is loaded once when
-    /// the layer is built, never while a request is being processed.
+    /// Optional geolocation configuration. The bundled database or an external
+    /// local MMDB is loaded once when the layer is built, never during a request.
     #[cfg(feature = "geolocation")]
     pub geolocation: Option<GeolocationConfig>,
 }
