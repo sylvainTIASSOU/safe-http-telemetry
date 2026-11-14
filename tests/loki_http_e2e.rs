@@ -412,10 +412,10 @@ async fn detailed_http_event_redacts_secrets_and_exports_correctly() {
     use std::time::Duration;
     use tokio::time::sleep;
 
-    // 1. Setup de l'application Axum avec profil Detailed
+    // 1. Setup Axum app with Detailed profile
     let (_queue, exporter, app) = setup_detailed_test_app().await;
 
-    // Démarrage du serveur sur un port aléatoire
+    // Start server on a random port
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
@@ -423,7 +423,7 @@ async fn detailed_http_event_redacts_secrets_and_exports_correctly() {
         axum::serve(listener, app).await.unwrap();
     });
 
-    // 2. Envoi de la requête avec des secrets fictifs
+    // 2. Send request with fictitious secrets
     let client = Client::new();
     let secret_password = "super-secret-password-123";
     let secret_token = "bearer-secret-token-456";
@@ -444,14 +444,14 @@ async fn detailed_http_event_redacts_secrets_and_exports_correctly() {
 
     assert_eq!(response.status(), 200);
 
-    // La réponse du handler contient aussi un secret fictif
+    // The handler response also contains a fictitious secret
     let response_body: serde_json::Value = response.json().await.unwrap();
     assert_eq!(response_body["status"], "ok");
 
-    // 3. Attendre que le batch soit exporté vers Loki (flush_interval est de 250ms)
+    // 3. Wait for the batch to be exported to Loki (flush_interval is 250ms)
     sleep(Duration::from_millis(1000)).await;
 
-    // 4. Interroger Loki pour récupérer l'événement
+    // 4. Query Loki to retrieve the event
     let loki_url = std::env::var("LOKI_PUSH_URL")
         .unwrap_or_else(|_| "http://127.0.0.1:3100/loki/api/v1/push".to_owned())
         .replace("/push", "/query_range");
@@ -484,15 +484,15 @@ async fn detailed_http_event_redacts_secrets_and_exports_correctly() {
 
     let first_stream = &streams[0];
 
-    // A. Vérifier que les labels ne contiennent PAS de secrets (faible cardinalité)
+    // A. Ensure labels do NOT contain secrets (low cardinality)
     let labels = first_stream["stream"].as_object().unwrap();
     assert!(labels.contains_key("service"));
     assert_eq!(labels["service"], "e2e-detailed-test");
     assert_eq!(labels["event_type"], "http");
 
-    // B. Vérifier le contenu de la ligne de log
+    // B. Check log line content
     let values = first_stream["values"].as_array().unwrap();
-    // values[0][1] correspond à la ligne de log JSON
+    // values[0][1] corresponds to the JSON log line
     let log_line = values[0][1].as_str().expect("Log line is not a string");
 
     // Le secret ne doit apparaître NULLE PART

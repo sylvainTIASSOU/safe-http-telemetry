@@ -81,18 +81,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // --- Capture policy ---
     let mut policies = RoutePolicySet::new(CaptureProfile::Minimal);
 
-    // Health check exclu
+    // Health check excluded
     policies.add_policy(
         RoutePolicy::new(RoutePattern::exact("/health"), CaptureProfile::Minimal).exclude(),
     )?;
 
-    // Hello keep in minimal
+    // Keep hello in minimal
     policies.add_policy(RoutePolicy::new(
         RoutePattern::exact("/hello/{name}"),
         CaptureProfile::Minimal,
     ))?;
 
-    // Routes détaillées pour tester la capture de corps
+    // Detailed routes to test body capture
     policies.add_policy(RoutePolicy::new(
         RoutePattern::exact("/e2e/items"),
         CaptureProfile::Detailed,
@@ -106,7 +106,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         CaptureProfile::Detailed,
     ))?;
 
-    // --- Configuration du middleware avec géolocalisation ---
+    // --- Middleware configuration with geolocation ---
     let middleware_config = MiddlewareConfig {
         geolocation: Some(GeolocationConfig::bundled()),
         ..MiddlewareConfig::default()
@@ -150,7 +150,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn create_item(Json(payload): Json<ItemPayload>) -> Json<ItemPayload> {
     tracing::info!(item_name = %payload.name, "Item created via detailed profile");
-    // On renvoie le payload tel quel pour tester la capture du corps de réponse.
+    // Return the payload as-is to test response body capture.
     Json(payload)
 }
 
