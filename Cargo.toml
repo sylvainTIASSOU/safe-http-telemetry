@@ -13,7 +13,7 @@ categories = [
   "web-programming::http-server",
   "network-programming::protocols::http",
 ]
-exclude = ["/data/**", "/fuzz/**", "/.idea/**", "/.github/**"]
+exclude = ["/data/**", "/fuzz/**", "/wiki/**", "/.idea/**", "/.github/**"]
 
 [features]
 default = []

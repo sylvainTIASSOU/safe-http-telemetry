@@ -37,7 +37,7 @@ Security fixes involving redaction must include tests that search for the fake s
 - **Centralized redaction**: no captured data reaches the export queue without passing through the redaction engine (`Redactor`).
 - **Bounded memory**: queues, buffers, body captures, retries and shutdown deadlines have explicit limits. No unbounded allocation is performed on the request path.
 - **No synchronous export**: the request path never awaits a network call to Loki. Export happens on dedicated workers.
-- **TLS for remote export**: `LokiConfig` rejects plain HTTP URLs unless explicitly allowed. Certificate validation is never bypassed automatically.
+- **TLS for remote export**: `LokiConfig` accepts both HTTP and HTTPS URLs. Use HTTPS for remote Loki endpoints; the HTTP client uses Rustls with certificate validation enabled and does not disable verification automatically. Plain HTTP is intended for local development or a separately protected private network.
 - **No credential leakage**: `LokiConfig` rejects URLs with embedded credentials. Its `Debug` implementation does not expose bearer tokens.
 - **Recursive logging prevention**: exporter errors are never fed back into the same Loki queue.
 

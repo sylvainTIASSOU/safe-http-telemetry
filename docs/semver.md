@@ -63,5 +63,5 @@ The Minimum Supported Rust Version is declared in `Cargo.toml` (`rust-version = 
 ## 6. Enforcement
 
 - `cargo-semver-checks` is run in CI on every pull request that touches public items.
-- The `schema_version` constant in `src/core/event.rs` is checked against the JSON schema in `schemas/`.
+- The `schema_version` constants and serialized event shapes in `src/core/event.rs` are checked by the tests listed in `schemas/README.md`; machine-readable JSON Schema files have not yet been added.
 - Any PR that changes a public item without updating this policy is rejected.

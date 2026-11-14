@@ -1,10 +1,7 @@
 # Documentation
 
-This directory contains the project guides, architecture notes, and architecture decision records.
-
-The public event schemas are stored in `schemas/`.
-
-Performance benchmarks are documented before implementation results are claimed.
+Start with the [project README](../README.md), then choose the integration guide
+that matches your application. Public event schemas are in [`schemas/`](../schemas/).
 
 ## Guides
 
@@ -14,3 +11,7 @@ Performance benchmarks are documented before implementation results are claimed.
 - [Sensitive-data redaction](redaction.md)
 - [Grafana and OpenTelemetry correlation](grafana-opentelemetry.md)
 - [Executable examples](../examples/README.md)
+- [Production configuration](production.md)
+- [Test matrix and release checklist](test-matrix.md)
+- [Benchmarks](benchmarks.md)
+- [Migration](migration.md) and [compatibility policy](semver.md)

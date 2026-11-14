@@ -1,116 +1,62 @@
-# Production Configuration Guide
+# Production configuration
 
-This guide describes how to configure `safe-http-telemetry` for production deployments. It covers memory bounds, profile selection, secret management, geolocation, and resilience.
+Use this guide when wiring `safe-http-telemetry` into a deployed service. The [complete Axum example](../examples/axum_loki.rs) shows the ownership and shutdown pattern; its local Docker stack and sample routes are for evaluation.
 
-## 1. Memory and Resource Bounds
+## Set explicit resource limits
 
-All internal structures are bounded. The following limits must be configured explicitly:
+`QueueConfig::new(capacity)` bounds waiting events; its default is 1,024. A full queue rejects the newest event without delaying the HTTP request. Choose a capacity for your traffic and monitor both occupancy and `dropped_events`. Avoid excessively large capacities that turn a downstream outage into a memory problem.
 
-### Queue capacity
-`QueueConfig::new(capacity)` sets the maximum number of events buffered before the saturation policy applies. Default: **1024 events**.
-- **Low-traffic services**: 256–512 events.
-- **High-traffic APIs**: 2048–4096 events, but monitor `queue_occupancy` from `InternalTelemetry`.
-- **Never set to `usize::MAX`**: the queue would grow unbounded.
+`CaptureLimits::default()` provides finite limits. The values below are the current code defaults; reduce them for routes that do not need the data.
 
-### Capture limits (`CaptureLimits`)
-`CaptureLimits` bounds every in-memory capture:
+| Limit | Default |
+| --- | ---: |
+| Request body | 64 KiB |
+| Response body | 64 KiB |
+| One header value | 8 KiB |
+| All headers | 32 KiB |
+| Header count | 128 |
+| Query parameter count | 128 |
+| JSON depth | 16 |
+| JSON nodes | 4,096 |
+| One captured string | 16 KiB |
+| One event | 256 KiB |
+| Loki batch allowed by capture configuration | 4 MiB |
 
-| Field | Default | Production recommendation |
-|---|---|---|
-| `max_request_body_bytes` | 64 KiB | 16–64 KiB |
-| `max_response_body_bytes` | 64 KiB | 16–64 KiB |
-| `max_header_value_bytes` | 4 KiB | 1–4 KiB |
-| `max_total_header_bytes` | 16 KiB | 8–16 KiB |
-| `max_headers` | 64 | 32–64 |
-| `max_query_parameters` | 64 | 16–32 |
-| `max_json_depth` | 16 | 8–16 |
-| `max_json_nodes` | 1024 | 256–1024 |
-| `max_string_bytes` | 8 KiB | 1–8 KiB |
-| `max_event_bytes` | 128 KiB | 64–128 KiB |
-| `max_loki_batch_bytes` | 1 MiB | 512 KiB–1 MiB |
+`CaptureLimits::validate()` rejects zero or inconsistent limits, including an event limit larger than its batch limit. The Loki exporter also validates its own limits when constructed.
 
-> **Note**: `max_event_bytes` must never exceed `max_loki_batch_bytes`; this is validated at startup.
+| `LokiConfig` field | Default |
+| --- | ---: |
+| `batch.max_events` | 100 |
+| `batch.max_bytes` | 4 MiB |
+| `batch.flush_interval` | 500 ms |
+| `request_timeout` | 5 s |
+| `retry.max_retries` | 2 retries after the initial attempt |
+| `shutdown.deadline` | 5 s |
 
-### Loki batching (`LokiConfig`)
-| Field | Default | Production recommendation |
-|---|---|---|
-| `batch.max_events` | 100 | 50–200 |
-| `batch.max_bytes` | 1 MiB | 512 KiB–1 MiB |
-| `batch.flush_interval` | 5 s | 1–5 s |
-| `request_timeout` | 10 s | 2–5 s |
-| `retry.max_retries` | 3 | 2–5 |
-| `shutdown.deadline` | 10 s | 5–15 s |
+Tune batch size and timeout against the latency and limits of your Loki service. One exporter owns a fixed number of workers for the lifetime of the application; do not start a new exporter per request.
 
-### Geolocation cache
-`GeolocationConfig` requires a non-zero `cache_capacity` and a `cache_ttl`. Production recommendation: **10 000 entries** with a **24 h TTL** for a typical API.
+## Choose capture policies conservatively
 
-## 2. Capture Profile Selection
+Start with `Minimal` for endpoints where method, normalized route, status, timing, and correlation are enough. Use `Standard` when filtered query parameters or headers provide necessary context. Select `Detailed` only on reviewed routes and only with the `body-capture` feature enabled. Authentication, password-reset, payment, and credential-management endpoints should normally be excluded or kept at `Minimal`.
 
-| Profile | Use case | Cost (relative) |
-|---|---|---|
-| `Minimal` | Health checks, metrics, high-frequency low-value endpoints | ~1× |
-| `Standard` | Most business APIs where headers and query parameters are needed | ~2× |
-| `Detailed` | Critical routes (checkout, authentication, payment) where body context is mandatory | ~2.1× |
+Body observation is bounded, but no generic redactor can identify every secret. Preserve the default `RedactionConfig` rules and add field names specific to your application. Never put credentials or personal data in free-form `tracing` messages; the business layer redacts configured structured fields, not arbitrary prose. See [redaction](redaction.md) and [policies](policies.md).
 
-> **Benchmark context:** The recorded measurements predate the external database migration and are not release performance claims. See [the benchmark guide](benchmarks.md) for the methodology and required rerun.
+## Configure the export destination
 
-**Recommendation**: start with `Standard` for the default profile, and explicitly elevate `Detailed` only on the routes listed in your incident-response runbook.
+Supply a complete HTTP or HTTPS Loki push URL without embedded credentials. `LokiConfig` supports a bearer token and optional tenant ID; pass the token through your deployment secret mechanism. The [example variables](../examples/README.md#configure-the-complete-example) demonstrate both. Protect access to Loki itself because redacted telemetry may still contain sensitive operational context.
 
-## 3. Secret Management
+Controlled Loki labels contain only service, environment, version, optional region, and event type. Request IDs, trace IDs, IP addresses, paths, messages, and body values are not indexed labels. Keep service metadata stable and low cardinality.
 
-### Redaction rules
-`RedactionConfig` applies a list of sensitive field names globally. The default list covers: `password`, `passwd`, `pwd`, `token`, `access_token`, `refresh_token`, `id_token`, `authorization`, `proxy-authorization`, `api_key`, `apikey`, `secret`, `client_secret`, `cookie`, `set-cookie`, `session`, `session_id`, private keys and signing secrets.
+## Handle proxies and geolocation
 
-**Production recommendation**:
-- Keep the default list as a baseline.
-- Add domain-specific fields (e.g., `card_number`, `cvv`, `iban`).
-- Never remove a default field without a documented risk assessment.
+By default, `Forwarded` and `X-Forwarded-For` are ignored. Put only the exact CIDR ranges of proxies you operate in `MiddlewareConfig.client_ip.trusted_proxies`. Do not accept forwarding headers from arbitrary clients. Incoming `x-request-id` is also ignored unless explicitly trusted.
 
-### Route-specific policies
-Use `RoutePolicy` to disable body capture entirely on authentication and password-reset routes, even under a `Detailed` profile. This is the **recommended default** for sensitive routes.
+If `geolocation` is enabled, install an MMDB separately and pass its path to `GeolocationConfig::new(path)`. A missing, corrupt, or oversized file fails layer construction. Country-only output is the default. Keep the application's database mount read-only and restart after an update; the engine holds the loaded bytes in memory. Follow the provider's attribution and licensing terms in the [database guide](geolocation.md).
 
-### Loki credentials
-`LokiConfig` rejects URLs containing embedded credentials (`user:pass@host`). Provide the bearer token or basic-auth credentials through the deployment secret mechanism (environment variable, secret manager, etc.). Never log the `LokiConfig` `Debug` representation in production.
+## Monitor and shut down
 
-## 4. Geolocation
+Export `InternalTelemetry::snapshot()` through your existing metrics system. Watch at least `dropped_events`, queue occupancy from `BoundedEventQueue::stats()`, `failed_batches`, `export_retries`, `pending_export_events`, `geolocation_errors` when enabled, and `shutdown_abandoned_events`. Set alert thresholds for your service's normal traffic and Loki availability.
 
-### Database
-The optional `geolocation` feature loads a local MMDB at startup from `GeolocationConfig::new(path)`. No production database is included in the crate. See [the deployment guide](geolocation.md) for the pinned installer, Docker mount, and update procedure.
+On shutdown, stop accepting HTTP requests, wait for Axum's graceful connection shutdown, shut down any tracer provider, then call `LokiExporterHandle::shutdown()`. Inspect `ShutdownReport`: a timeout, worker failure, or nonzero `abandoned_events` means some telemetry may not have reached Loki. The exporter closes the queue and respects its configured drain deadline.
 
-- Pin the release and trusted archive SHA-256 in deployment configuration.
-- Retain the provider's attribution and license.
-- Use a read-only mount for the application, and update the file through the deployment process.
-- Restart after an update; existing engines retain their loaded database.
-- Configure bounded cache capacity and TTL. Select only country fields unless finer precision is needed.
-
-### Trusted proxies
-`Forwarded` and `X-Forwarded-For` headers are **ignored by default**. If your service runs behind a reverse proxy, configure `TrustedProxyConfig` with the exact proxy CIDR ranges. An untrusted peer cannot inject forwarding headers.
-
-## 5. Resilience
-
-### Saturation policy
-The default saturation policy is `DropNewest`. When the queue is full, new events are rejected and `dropped_events` is incremented. This preserves already-accepted events and keeps the request path non-blocking.
-
-**Monitoring**: export `InternalTelemetry::snapshot()` to your metrics backend and alert on:
-- `dropped_events > 0` sustained for more than 5 minutes.
-- `queue_occupancy / queue_capacity > 0.8` sustained for more than 5 minutes.
-- `failed_batches > 0` with a rising trend.
-- `export_duration_ms_total / export_operations > request_timeout` (exports are too slow).
-
-### Shutdown
-`LokiExporterHandle::shutdown()` closes the queue, drains the remaining events, and respects `shutdown.deadline`. If the deadline expires, remaining events are counted in `abandoned_events` and the shutdown returns `ShutdownOutcome::TimedOut`. Always call `shutdown()` from your application's graceful-shutdown handler (e.g., Axum's `with_graceful_shutdown`).
-
-### Recursive logging prevention
-Exporter errors are never fed back into the same Loki queue. They are counted in `failed_batches` and, optionally, written to a separate diagnostic sink. Do not configure the diagnostic sink to point back to the same Loki instance.
-
-## 6. Configuration Validation
-
-`Config::validate()` rejects configurations that would be unsafe in production. Startup must fail if:
-- A limit is zero or internally inconsistent.
-- `max_event_bytes > max_loki_batch_bytes`.
-- A route policy is ambiguous.
-- A configured regex is invalid.
-- The geolocation database is unreadable.
-- TLS is requested with an inconsistent configuration.
-
-Do not bypass validation. A rejected configuration is a signal that the deployment is misconfigured.
+Configuration errors should stop startup. Validate capture, route, geolocation, and Loki settings through their constructors and `validate()` methods instead of silently disabling a requested integration. Run the [test and release matrix](test-matrix.md) before publishing or deploying changes.

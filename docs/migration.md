@@ -14,7 +14,7 @@ This guide describes how to migrate between versions of `safe-http-telemetry` an
 ## 2. Migrating from Development to `0.1.0`
 
 ### Feature flags
-The following features are stable in `0.1.0`: `axum`, `tower`, `tracing`, `opentelemetry`, `body-capture`, `geolocation`, `loki`. Enable only the features you use.
+The `0.1.0-rc.1` candidate exposes `axum`, `tower`, `tracing`, `opentelemetry`, `body-capture`, `geolocation`, and `loki`. Enable only the features you use; the candidate API remains under final review.
 
 ### Configuration types
 `CaptureLimits` is now validated at startup. If your previous configuration had a zero limit or an inconsistent `max_event_bytes > max_loki_batch_bytes`, the crate will refuse to start. Adjust the limits before upgrading.
