@@ -2,9 +2,7 @@
 
 Safe, bounded HTTP telemetry for Axum, Tower, `tracing`, OpenTelemetry and Grafana Loki.
 
-> **Status:** development release. The crate is not published. Tower and Axum
-> HTTP lifecycle middleware, bounded queues and the Loki exporter are being
-> validated incrementally; the public API is not stable yet.
+> **Status:** release candidate (`0.1.0-rc.1`). The public API is frozen for the `0.1` line. Feedback on the release candidate is welcome through GitHub issues.
 
 ## Project decisions
 

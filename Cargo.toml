@@ -1,18 +1,19 @@
 [package]
 name = "safe-http-telemetry"
-version = "0.1.0-dev.0"
+version = "0.1.0-rc.1"
 edition = "2021"
 rust-version = "1.85"
 license = "MIT"
 description = "Safe, bounded HTTP telemetry for Axum, tracing, Log Observability, OpenTelemetry and Grafana Loki"
+repository = "https://github.com/sylvainTIASSOU/safe-http-telemetry"
 readme = "README.md"
 keywords = ["axum", "telemetry", "opentelemetry", "loki", "tracing"]
 categories = [
-    "development-tools::debugging",
-    "web-programming::http-server",
-    "network-programming::protocols::http",
+  "development-tools::debugging",
+  "web-programming::http-server",
+  "network-programming::protocols::http",
 ]
-publish = false
+# publish = false
 
 [features]
 default = []
