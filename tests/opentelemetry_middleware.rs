@@ -57,6 +57,17 @@ async fn incoming_w3c_trace_is_shared_by_the_span_event_and_log() {
 }
 
 #[tokio::test]
+async fn secret_in_raw_path_is_omitted_from_event_and_tracing_output() {
+    let secret = "fake-reset-token-7f91";
+    let (event, logs) =
+        run_with_opentelemetry_path(HeaderMap::new(), &format!("/reset/{secret}")).await;
+
+    assert_eq!(event.request.path, "[OMITTED]");
+    assert!(!serde_json::to_string(&event).unwrap().contains(secret));
+    assert!(!logs.contains(secret));
+}
+
+#[tokio::test]
 async fn local_span_generates_valid_correlation_without_incoming_context() {
     let (event, _) = run_with_opentelemetry(HeaderMap::new()).await;
 
@@ -149,6 +160,10 @@ async fn correlation_is_exported_as_metadata_not_loki_labels() {
 }
 
 async fn run_with_opentelemetry(headers: HeaderMap) -> (HttpEvent, String) {
+    run_with_opentelemetry_path(headers, "/users/42").await
+}
+
+async fn run_with_opentelemetry_path(headers: HeaderMap, path: &str) -> (HttpEvent, String) {
     let output = SharedWriter::default();
     let provider = SdkTracerProvider::default();
     let tracer = provider.tracer("http-middleware-test");
@@ -158,7 +173,7 @@ async fn run_with_opentelemetry(headers: HeaderMap) -> (HttpEvent, String) {
         .with(tracing_subscriber::fmt::layer().with_writer(output.clone()));
 
     let _subscriber_guard = tracing::subscriber::set_default(subscriber);
-    let event = observed_request(headers).await;
+    let event = observed_request(headers, path).await;
 
     (event, output.contents())
 }
@@ -167,10 +182,10 @@ async fn run_without_opentelemetry(headers: HeaderMap) -> HttpEvent {
     let subscriber = tracing_subscriber::Registry::default();
     let _subscriber_guard = tracing::subscriber::set_default(subscriber);
 
-    observed_request(headers).await
+    observed_request(headers, "/users/42").await
 }
 
-async fn observed_request(headers: HeaderMap) -> HttpEvent {
+async fn observed_request(headers: HeaderMap, path: &str) -> HttpEvent {
     let queue = BoundedEventQueue::new(QueueConfig::new(8), InternalTelemetry::new()).unwrap();
 
     let layer = HttpTelemetryLayer::new(
@@ -186,7 +201,7 @@ async fn observed_request(headers: HeaderMap) -> HttpEvent {
 
     let mut request = Request::builder()
         .method("GET")
-        .uri("/users/42")
+        .uri(path)
         .body(Full::new(Bytes::new()))
         .unwrap();
     *request.headers_mut() = headers;

@@ -109,31 +109,38 @@ The pull-request and push workflow runs:
 
 The real-Loki tests and fuzzing are not part of that pull-request workflow.
 
-## Local verification snapshot (2026-11-14)
+## CI verification snapshot (2026-11-14)
 
-The following checks were run in the development environment for the current `0.1.0` source:
+The maintainer supplied successful CI logs for the current `0.1.0` commit:
 
-- `cargo fmt --all -- --check`, `git diff --check`, Clippy with warnings denied, and rustdoc with warnings denied passed.
-- The Python MMDB installer suite passed: 7 tests.
-- All non-socket test targets passed on the current stable toolchain and on Rust 1.85.0: 30 targets and 177 tests on each toolchain. All targets and examples also compiled on Rust 1.85.0. A complete all-target test run could not pass in this restricted environment: socket-based tests failed with `PermissionDenied` when binding `127.0.0.1`. Run the unfiltered CI test commands on a host that permits local loopback sockets.
-- One geolocation test is ignored unless `SAFE_HTTP_TEST_MMDB` points to a licensed local database. The real-Loki end-to-end target is ignored unless explicitly requested.
-- `cargo package --locked --offline --no-verify --allow-dirty` packaged 107 files: 616.7 KiB unpacked and 149.0 KiB compressed. The production database directory is excluded; the licensed synthetic test fixture and dependency license inventory are included. The network-dependent `cargo publish --dry-run` remains to be run with crates.io access.
-- A short Criterion run completed with 10 samples per case. These are local smoke measurements, not a release performance guarantee; see [benchmarks.md](benchmarks.md) for environment and numbers.
+- Formatting, all-target/all-feature check and tests, Clippy, rustdoc, installer tests, MSRV tests, package inspection, and publish dry-run completed successfully.
+- Both stable and Rust 1.85.0 test runs report 37 targets, 197 passed, 0 failed, and 3 ignored. The ignored tests are one external-MMDB lookup requiring `SAFE_HTTP_TEST_MMDB` and two real-Loki tests in `loki_http_e2e`.
+- The package dry-run contains 107 files: 616.7 KiB unpacked and 149.0 KiB compressed. The production database directory is excluded; the licensed synthetic fixture and dependency license inventory are included. Cargo's `aborting upload due to dry run` warning is expected and confirms that this job did not publish the crate.
+- `cargo-semver-checks` exited successfully using Git baseline `e6da66939fe103b07f890e832ca2ba0701e5e32f`. It classified `0.1.0-rc.1` → `0.1.0` as a major change and skipped all 260 individual lints (0 checked). This is expected for the first stable publication, which has no released API to preserve; it is not evidence that 260 API checks passed. Subsequent releases should compare against the previous stable API.
+- GitHub reported a non-blocking Node 20 deprecation notice for `actions/checkout@v4`. The CI run still passed; update the action runtime separately to remove the notice.
+- All three fuzz targets built and completed 30-second campaigns without a finding. This sandbox cannot run LeakSanitizer under its ptrace restrictions, so the campaigns used `ASAN_OPTIONS=detect_leaks=0`; AddressSanitizer checks remained active. An initial `crash-*` artifact was reproduced as this LeakSanitizer environment failure and was not a code crash.
+- The maintainer ran the ignored real-Loki end-to-end tests against the documented Compose stack: 2 passed, 0 failed (minimal event export and detailed event redaction/export).
+- A 50-sample Criterion run was recorded on the documented host with a new named baseline. CPU scaling was enabled and some profiles had outliers; use the results as a host-specific release snapshot, not as a general performance guarantee. Details are in [benchmarks.md](benchmarks.md).
+- After the security changes, the focused all-feature Axum, Tower, and OpenTelemetry middleware test targets pass: 18 passed, 0 failed. Formatting and `git diff --check` also pass. Rerun the full CI workflow, including Rust 1.85 and the release package dry-run, against the final release commit.
+
+### Security review finding and resolution
+
+Raw request paths are now omitted from middleware-generated events: the schema's `request.path` field contains `[OMITTED]`. Route templates remain available, and custom `RouteResolver` implementations are required to return stable, non-sensitive templates rather than raw paths. Regression tests send a fake reset token in an unmatched path and verify it is absent from both the serialized event and tracing output. The Loki configuration debug leak found in the review is also fixed and covered by a targeted test.
 
 ## First stable release checklist
 
 Complete this checklist for the exact commit proposed for release. Attach or link the CI run and record external validation results; do not mark items complete from the presence of commands or workflows alone.
 
-- [ ] Stable-toolchain CI checks pass.
-- [ ] Unfiltered all-target, all-feature tests pass on stable and Rust 1.85.0 in CI, including tests that bind loopback sockets.
-- [ ] Real-Loki end-to-end tests pass against the documented Loki configuration.
-- [ ] All three fuzz targets have completed at least 30 seconds without a crash.
-- [ ] Release benchmark results are repeated on a stable host and include hardware, operating system, toolchain, and lockfile hash. The recorded smoke run is not sufficient by itself.
-- [ ] Security review is complete and has no open release-blocking findings.
-- [ ] The package archive is below the target registry limit and excludes production MMDB files. Only the licensed synthetic test fixture is included.
-- [ ] `cargo publish --dry-run --locked --all-features` succeeds with registry access; review the packaged file list and size.
+- [ ] Rerun stable-toolchain CI against the final release commit after the path-omission change.
+- [ ] Rerun unfiltered all-target, all-feature tests on stable and Rust 1.85.0 against the final release commit, including tests that bind loopback sockets. The prior run had three environment-dependent tests ignored.
+- [ ] Rerun real-Loki end-to-end tests against the final release commit; the previous source passed 2 tests, 0 failed.
+- [x] All three fuzz targets have completed at least 30 seconds without a finding. This local run disabled LeakSanitizer because the sandbox does not support its ptrace requirements.
+- [x] A 50-sample benchmark is recorded with hardware, operating system, toolchain, commit, and lockfile hash. CPU frequency scaling and per-profile outliers are documented as limits on comparisons.
+- [x] The identified raw-path disclosure is resolved by omitting raw paths from middleware events; regression tests cover event serialization and tracing output.
+- [x] The package archive is below the target registry limit and excludes production MMDB files. The licensed synthetic test fixture and license inventory are included.
+- [x] `cargo publish --dry-run --locked --all-features` succeeds with registry access; the job reports the 107-file package and size.
 - [x] The locked dependency license inventory is recorded in [THIRD_PARTY_LICENSES.md](../THIRD_PARTY_LICENSES.md); review it when updating `Cargo.lock`.
-- [ ] Version, changelog, README status, and release notes agree.
+- [x] Version, changelog, README status, and release notes agree on the planned `0.1.0` first release.
 
 ## Database installer checks
 

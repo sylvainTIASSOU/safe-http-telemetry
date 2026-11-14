@@ -14,27 +14,29 @@ cargo bench --locked --all-features
 
 Criterion writes estimates and raw samples under `target/criterion/`. Record the run date, commit, Rust version, operating system, CPU, and lockfile hash alongside any results used for a release decision. Do not compare numbers collected with different environments as if they were directly equivalent.
 
-### Local smoke run (2026-11-14)
+### 50-sample release run (2026-11-14)
 
-A short exploratory run was completed against the current source with Rust 1.99.1 using:
+A 50-sample run was recorded for the `0.1.0` source using a new named Criterion baseline:
 
 ```sh
-cargo bench --locked --all-features --bench middleware_overhead --offline -- --sample-size 10
+cargo bench --locked --all-features --bench middleware_overhead -- \
+  --sample-size 50 \
+  --save-baseline safe-http-telemetry-v0.1.0-2026-11-14
 ```
 
 The geolocation case opens the small synthetic test fixture but supplies no client IP, so it measures the no-IP path and does not include a database lookup or cache hit.
 
-Environment: Fedora Linux 7.3.3 x86_64, Intel Core i7-8565U CPU @ 1.80 GHz, eight logical CPUs, CPU frequency scaling enabled. Toolchain: `rustc 1.99.1`. `Cargo.lock` SHA-256: `47db3528dcbe34d1f6915aad038c7fb6de4139aaac3a1585ed9e03f3bbbb0a1f`.
+Environment: Fedora Linux 7.3.3 x86_64, Intel Core i7-8565U CPU @ 1.80 GHz, eight logical CPUs. Toolchain: `rustc 1.99.1`. Commit: `93a8f20`. `Cargo.lock` SHA-256: `47db3528dcbe34d1f6915aad038c7fb6de4139aaac3a1585ed9e03f3bbbb0a1f`. CPU frequency scaling was enabled; `lscpu` reported 44% at the time of collection.
 
-| Profile | Criterion estimate | Criterion interval | Notes |
-|---|---:|---:|---|
-| Baseline | 2.237 µs | 2.089–2.527 µs | No telemetry middleware |
-| Minimal | 24.228 µs | 22.258–27.318 µs | Request lifecycle event |
-| Standard | 56.646 µs | 52.529–61.810 µs | Query/header capture and redaction |
-| Detailed | 60.225 µs | 55.206–67.916 µs | Bounded body capture and redaction |
-| Standard + geolocation | 23.535 µs | 22.192–25.666 µs | Fixture loaded; no client IP supplied |
+| Profile | Estimate | 95% confidence interval | Outliers | Notes |
+|---|---:|---:|---:|---|
+| Baseline | 2.3843 µs | 2.2430–2.5415 µs | 4/50 (2 mild, 2 severe) | No telemetry middleware |
+| Minimal | 27.314 µs | 26.299–28.658 µs | 3/50 (all severe) | Request lifecycle event |
+| Standard | 60.163 µs | 58.064–62.554 µs | 0/50 | Query/header capture and redaction |
+| Detailed | 71.576 µs | 64.709–79.444 µs | 5/50 (2 mild, 3 severe) | Bounded body capture and redaction |
+| Standard + geolocation | 27.629 µs | 26.696–28.620 µs | 3/50 (1 mild, 2 severe) | Fixture loaded; no client IP supplied |
 
-This is a short local snapshot, not a release performance guarantee. Each case used 10 samples and Criterion's default 3-second warm-up and measurement window. The machine had frequency scaling enabled; Criterion also reported outliers and changes relative to locally retained comparison data. The cross-profile figures are sensitive to host load and power state. Repeat the benchmark on stable, documented hardware with a clean Criterion baseline before using it to support production claims.
+Each profile used 50 samples with the benchmark's 3-second measurement window. The uniquely named baseline keeps this run separate from older local results. Frequency scaling was enabled and several profiles had outliers, so treat these values as a documented release snapshot rather than a general performance guarantee. Repeat on stable, documented hardware before making comparative performance claims.
 
 Do not infer throughput limits or production suitability from these isolated per-request measurements alone.
 

@@ -71,7 +71,9 @@ use response_body::ResponseBodyCaptureState;
 /// Stable route value used when the HTTP framework exposes no matched route.
 pub const UNMATCHED_ROUTE: &str = "unmatched";
 
-/// Extracts a normalized route without coupling Tower to a specific router.
+/// Extracts a normalized, non-sensitive route without coupling Tower to a
+/// specific router. Implementations must return a route template or stable
+/// label and must never return the raw request path.
 pub trait RouteResolver: Clone + Send + Sync + 'static {
     fn resolve<Body>(&self, request: &Request<Body>) -> Option<String>;
 }
@@ -233,7 +235,6 @@ where
 
         let max_bytes = self.metadata.limits().max_string_bytes;
         let method = bounded_value(request.method().as_str(), max_bytes, &self.telemetry);
-        let path = bounded_value(request.uri().path(), max_bytes, &self.telemetry);
         let route = self
             .route_resolver
             .resolve(&request)
@@ -290,7 +291,10 @@ where
         } else {
             BTreeMap::new()
         };
-        let mut request_info = RequestInfo::new(method.clone(), route.clone(), path);
+        // Raw paths can contain credentials or reset tokens. Keep the schema
+        // field but omit its value; the normalized route is recorded separately.
+        let mut request_info =
+            RequestInfo::new(method.clone(), route.clone(), crate::redaction::OMITTED);
         request_info.query = query;
         request_info.headers = headers;
 

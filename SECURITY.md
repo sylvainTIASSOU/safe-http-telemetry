@@ -34,11 +34,11 @@ Security fixes involving redaction must include tests that search for the fake s
 
 `safe-http-telemetry` applies the following guarantees on every normal path:
 
-- **Centralized redaction**: no captured data reaches the export queue without passing through the redaction engine (`Redactor`).
+- **Field-based redaction**: captured query parameters, headers, structured bodies and business-event fields pass through the redaction engine (`Redactor`) before queueing. HTTP raw paths are omitted from middleware events (`request.path` is `[OMITTED]`); normalized route templates remain. Custom `RouteResolver` implementations must return stable, non-sensitive route templates and never raw request paths. HTTP method, route, request/trace IDs and client IP are bounded but are not semantically redacted.
 - **Bounded memory**: queues, buffers, body captures, retries and shutdown deadlines have explicit limits. No unbounded allocation is performed on the request path.
 - **No synchronous export**: the request path never awaits a network call to Loki. Export happens on dedicated workers.
 - **TLS for remote export**: `LokiConfig` accepts both HTTP and HTTPS URLs. Use HTTPS for remote Loki endpoints; the HTTP client uses Rustls with certificate validation enabled and does not disable verification automatically. Plain HTTP is intended for local development or a separately protected private network.
-- **No credential leakage**: `LokiConfig` rejects URLs with embedded credentials. Its `Debug` implementation does not expose bearer tokens.
+- **No credential leakage through configuration formatting**: client startup rejects Loki URLs with embedded credentials or query strings. `LokiConfig` debug formatting strips URL user information, query strings and fragments and redacts bearer tokens, including if its public URL field was mutated after construction.
 - **Recursive logging prevention**: exporter errors are never fed back into the same Loki queue.
 
 ## Shared responsibility

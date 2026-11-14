@@ -22,7 +22,7 @@ A minimal completed request can be serialized as:
   "request": {
     "method": "GET",
     "route": "/users/{id}",
-    "path": "/users/42",
+    "path": "[OMITTED]",
     "query": {},
     "headers": {}
   },
@@ -41,7 +41,7 @@ A minimal completed request can be serialized as:
 }
 ```
 
-`request.route` is the normalized route template; `request.path` is the observed path. Neither is a Loki label. `timing` values are numbers in milliseconds, and `response.status_code` is a number when available. A failure before response headers may have no status code. The `level` values are `trace`, `debug`, `info`, `warn`, and `error`; outcome values are `success`, `client_error`, `server_error`, `cancelled`, and `timeout`.
+For middleware-generated HTTP events, `request.route` is the normalized route template and `request.path` is always `[OMITTED]`. The raw request path is never exported because path segments can contain secrets. Neither field is a Loki label. `timing` values are numbers in milliseconds, and `response.status_code` is a number when available. A failure before response headers may have no status code. The `level` values are `trace`, `debug`, `info`, `warn`, and `error`; outcome values are `success`, `client_error`, `server_error`, `cancelled`, and `timeout`.
 
 Optional fields such as `trace_id`, `span_id`, request and response `body`, `content_type`, `content_length`, `client_ip`, and `geolocation` are omitted when absent. `request.query` values may be a scalar (`string`, number, boolean, or `null`) or an array of scalars for repeated parameters. The `capture` object always includes both truncation booleans; optional body statuses are `captured`, `omitted`, `unsupported`, or `parse_error`. The [capture policy guide](../docs/policies.md) explains when fields may be collected.
 

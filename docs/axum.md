@@ -30,7 +30,7 @@ let app = Router::new()
 
 The fragment assumes an enclosing function returning an error type that accepts the constructors' errors. The full files in `examples/` compile and run with the commands in the [examples guide](../examples/README.md).
 
-An unmatched request uses a stable unmatched route value. Its raw path remains separate and never becomes a Loki label.
+The event's `request.path` field is always `[OMITTED]`; raw URL paths are not exported because path segments can contain credentials or reset tokens. Matched routes are recorded using Axum's normalized route template. Unmatched requests use the stable `unmatched` route value. Custom Tower `RouteResolver` implementations must return a stable, non-sensitive route template and must never return the raw path. The raw path is used internally for route-policy matching, but is not added to telemetry events or tracing spans.
 
 ## Request IDs and client IPs
 

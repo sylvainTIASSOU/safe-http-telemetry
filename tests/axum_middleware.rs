@@ -50,7 +50,7 @@ async fn axum_matched_path_is_used_instead_of_a_dynamic_raw_route() {
 
     let event = expect_http(receiver.try_recv().expect("Axum completion event"));
     assert_eq!(event.request.route, "/users/{id}");
-    assert_eq!(event.request.path, "/users/123");
+    assert_eq!(event.request.path, "[OMITTED]");
     assert_eq!(event.response.status_code, Some(200));
     assert!(event.request.query.is_empty());
 
@@ -123,9 +123,38 @@ async fn unmatched_axum_request_uses_a_stable_route_value() {
 
     let event = expect_http(receiver.try_recv().expect("unmatched-route event"));
     assert_eq!(event.request.route, UNMATCHED_ROUTE);
-    assert_eq!(event.request.path, "/missing/123");
+    assert_eq!(event.request.path, "[OMITTED]");
     assert_eq!(event.response.status_code, Some(404));
     assert_eq!(event.response.outcome, Some(ResponseOutcome::ClientError));
+}
+
+#[tokio::test]
+async fn unmatched_path_secrets_are_omitted_from_exported_event() {
+    let queue = queue();
+    let receiver = queue.receiver();
+    let policies = RoutePolicySet::new(CaptureProfile::Minimal);
+    let secret = "fake-reset-token-7f91";
+
+    let app = Router::new()
+        .route("/known", get(|| async { StatusCode::OK }))
+        .layer(layer(queue, policies));
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/reset/{secret}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+    let event = expect_http(receiver.try_recv().expect("unmatched-route event"));
+    assert_eq!(event.request.path, "[OMITTED]");
+    let serialized = serde_json::to_string(&event).unwrap();
+    assert!(!serialized.contains(secret));
+    assert_eq!(event.request.route, UNMATCHED_ROUTE);
 }
 
 #[tokio::test]
