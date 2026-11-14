@@ -9,5 +9,20 @@ services:
       - loki-data:/loki
     restart: unless-stopped
 
+  grafana:
+    image: grafana/grafana:11.5.0
+    ports:
+      - "127.0.0.1:3001:3000"
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+    volumes:
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - loki
+    restart: unless-stopped
+
 volumes:
   loki-data:
+  grafana-data:
