@@ -185,10 +185,7 @@ async fn run_scenario() -> TestResult<()> {
         event["request"]["route"].as_str(),
         Some("/e2e/items/{item_id}")
     );
-    assert_eq!(
-        event["request"]["path"].as_str(),
-        Some("/e2e/items/item-fictitious-001")
-    );
+    assert_eq!(event["request"]["path"].as_str(), Some("[OMITTED]"));
     assert_eq!(event["response"]["status_code"].as_u64(), Some(201));
     assert_eq!(event["response"]["outcome"].as_str(), Some("success"));
 
@@ -213,6 +210,7 @@ async fn run_scenario() -> TestResult<()> {
 
     let serialized_line = serde_json::to_string(&event)?;
     assert!(!serialized_line.contains(FICTITIOUS_SECRET));
+    assert!(!serialized_line.contains("item-fictitious-001"));
     assert!(!serialized_line.contains("api_key"));
     assert!(!serialized_line.contains("item-fictitious-001?"));
 
