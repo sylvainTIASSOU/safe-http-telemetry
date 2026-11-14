@@ -54,9 +54,10 @@ boundaries and includes `[TRUNCATED]` within the configured output limit.
 - `[UNSUPPORTED]`: unsupported content format;
 - `[PARSE_ERROR]`: expected structured content could not be parsed.
 
-Invalid or incomplete JSON must not be exported as raw text under the
-assumption that structural redaction occurred. Body parsing and the default
-omission behavior are implemented with HTTP body capture in a later phase.
+Invalid or incomplete JSON is not exported as raw text under the assumption
+that structural redaction succeeded. Bounded body parsing and omission are
+available when the `body-capture` feature is enabled and a route selects
+`Detailed`. The default `Minimal` profile does not capture bodies.
 
 ## Security limits
 

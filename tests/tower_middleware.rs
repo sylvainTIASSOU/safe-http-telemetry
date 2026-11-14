@@ -75,7 +75,7 @@ async fn minimal_event_is_queued_without_altering_the_response() {
     let event = expect_http(receiver.try_recv().expect("one HTTP event"));
     assert_eq!(event.request.method, "POST");
     assert_eq!(event.request.route, UNMATCHED_ROUTE);
-    assert_eq!(event.request.path, "/orders/42");
+    assert_eq!(event.request.path, "[OMITTED]");
     assert_eq!(event.response.status_code, Some(201));
     assert!(event.request.query.is_empty());
     assert!(event.request.headers.is_empty());
@@ -213,7 +213,7 @@ impl RouteResolver for TestRouteResolver {
 }
 
 #[tokio::test]
-async fn normalized_route_is_separate_from_the_raw_path() {
+async fn normalized_route_is_recorded_while_raw_path_is_omitted() {
     let queue = queue(2);
     let receiver = queue.receiver();
     let layer = HttpTelemetryLayer::with_route_resolver(
@@ -233,7 +233,7 @@ async fn normalized_route_is_separate_from_the_raw_path() {
 
     let event = expect_http(receiver.try_recv().expect("one HTTP event"));
     assert_eq!(event.request.route, "/users/{id}");
-    assert_eq!(event.request.path, "/users/123");
+    assert_eq!(event.request.path, "[OMITTED]");
 }
 
 #[tokio::test]

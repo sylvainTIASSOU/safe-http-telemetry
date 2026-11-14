@@ -18,6 +18,7 @@ jobs:
         with:
           components: clippy, rustfmt
 
+      - run: python3 -m unittest discover -s scripts -p 'test_*.py'
       - run: cargo fmt --all -- --check
       - run: cargo check --locked --all-targets --all-features
       - run: cargo test --locked --all-targets --all-features
@@ -38,3 +39,46 @@ jobs:
 
       - run: cargo check --locked --all-targets --all-features
       - run: cargo test --locked --all-targets --all-features
+
+
+  semver-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-semver-checks
+        run: cargo install cargo-semver-checks --locked
+      - name: Check API against the prior Git revision
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BASE_SHA: ${{ github.event.before }}
+        run: |
+          baseline="$PR_BASE_SHA"
+          if [ -z "$baseline" ]; then
+            baseline="$PUSH_BASE_SHA"
+          fi
+          if [ -z "$baseline" ] || [ "$baseline" = "0000000000000000000000000000000000000000" ]; then
+            baseline=origin/master
+          fi
+          cargo semver-checks --baseline-rev "$baseline"
+
+  publish-dry-run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo publish --dry-run --locked --all-features
+      - run: cargo package --locked --no-verify
+      - name: Enforce package size and database exclusions
+        run: |
+          python3 - <<'PYCODE'
+          import pathlib, tarfile
+          archive = next(pathlib.Path("target/package").glob("safe-http-telemetry-*.crate"))
+          assert archive.stat().st_size < 10_000_000, "crate exceeds the registry size limit"
+          with tarfile.open(archive) as package:
+              files = package.getnames()
+          assert not any("/data/" in name for name in files), "production data included"
+          assert any(name.endswith("tests/fixtures/GeoIP2-City-Test.mmdb") for name in files)
+          PYCODE

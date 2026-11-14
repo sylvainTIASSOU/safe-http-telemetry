@@ -14,6 +14,8 @@
 # Operating system files
 .DS_Store
 
-# Local geolocation databases; bundled releases remain tracked
-*.mmdb
-!data/*.mmdb
+# Small, licensed test fixture only
+!tests/fixtures/GeoIP2-City-Test.mmdb
+
+__pycache__/
+*.pyc

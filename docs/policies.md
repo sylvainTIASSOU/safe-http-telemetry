@@ -16,9 +16,9 @@ disabled.
 
 ### Detailed
 
-Allows bounded request and response body capture. Body capture still requires
-a compatible content type, an applicable route policy, size limits and
-redaction before queueing or export.
+Allows bounded request and response body capture when the `body-capture`
+feature is enabled. Body capture still requires a compatible content type,
+an applicable route policy, size limits, and redaction before queueing or export.
 
 Detailed mode is explicit and must never be interpreted as unlimited capture.
 

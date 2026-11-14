@@ -1,6 +1,7 @@
 use axum::{routing::get, Router};
 use safe_http_telemetry::{
     axum_adapter::axum_telemetry_layer,
+    core::event::TelemetryEvent,
     core::telemetry::InternalTelemetry,
     policy::{CaptureProfile, RoutePattern, RoutePolicy, RoutePolicySet},
     runtime::queue::{BoundedEventQueue, QueueConfig},
@@ -14,13 +15,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let queue = BoundedEventQueue::new(QueueConfig::new(128), InternalTelemetry::new())?;
+    let receiver = queue.receiver();
+    let printer = tokio::spawn(async move {
+        while let Some(event) = receiver.recv().await {
+            // Events are already bounded and redacted by the middleware.
+            let line = match event {
+                TelemetryEvent::Http(event) => serde_json::to_string(&*event),
+                TelemetryEvent::Business(event) => serde_json::to_string(&*event),
+            };
+            match line {
+                Ok(line) => println!("{line}"),
+                Err(error) => eprintln!("telemetry serialization failed: {error}"),
+            }
+        }
+    });
 
     let mut policies = RoutePolicySet::new(CaptureProfile::Minimal);
     policies.add_policy(
         RoutePolicy::new(RoutePattern::exact("/health"), CaptureProfile::Minimal).exclude(),
     )?;
 
-    let telemetry_layer = axum_telemetry_layer(queue, policies, MiddlewareConfig::default())?;
+    let telemetry_layer =
+        axum_telemetry_layer(queue.clone(), policies, MiddlewareConfig::default())?;
 
     // Register routes before applying telemetry so MatchedPath is available.
     let app = Router::new()
@@ -35,6 +51,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Axum listening on http://127.0.0.1:3030");
     println!("Try: curl http://127.0.0.1:3030/hello/fictitious-user");
 
-    axum::serve(listener, app).await?;
+    let server_result = axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await;
+    queue.close();
+    printer.await?;
+    server_result?;
     Ok(())
+}
+
+async fn shutdown_signal() {
+    let _ = tokio::signal::ctrl_c().await;
 }

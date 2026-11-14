@@ -28,11 +28,13 @@ fn temporary_database(contents: &[u8]) -> PathBuf {
 }
 
 #[test]
-fn bundled_defaults_are_valid_and_retain_only_country_fields() {
-    let config = GeolocationConfig::bundled();
+fn fixture_defaults_are_valid_and_retain_only_country_fields() {
+    let config = GeolocationConfig::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/GeoIP2-City-Test.mmdb"
+    ));
 
-    assert_eq!(config, GeolocationConfig::default());
-    assert_eq!(config.database_path, None);
+    assert!(config.database_path.is_file());
     assert_eq!(config.validate(), Ok(()));
     assert_eq!(config.cache_capacity, 10_000);
     assert_eq!(config.cache_ttl, Duration::from_secs(300));
@@ -93,14 +95,17 @@ fn unsafe_or_empty_configuration_is_rejected() {
 }
 
 #[test]
-fn bundled_database_loading_respects_the_size_limit() {
-    let mut config = GeolocationConfig::bundled();
+fn fixture_database_loading_respects_the_size_limit() {
+    let mut config = GeolocationConfig::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/GeoIP2-City-Test.mmdb"
+    ));
     config.max_database_bytes = 8;
     let telemetry = InternalTelemetry::new();
 
     let error = match GeolocationEngine::open(&config, telemetry.clone()) {
         Err(error) => error,
-        Ok(_) => panic!("oversized bundled database was accepted"),
+        Ok(_) => panic!("oversized fixture database was accepted"),
     };
     assert_eq!(error, GeolocationError::DatabaseTooLarge { limit: 8 });
     assert_eq!(telemetry.snapshot().geolocation_errors, 1);
@@ -159,24 +164,48 @@ fn geolocation_counters_are_shared_by_cloned_telemetry_handles() {
 }
 
 #[test]
-fn bundled_mmdb_lookup_uses_the_bounded_cache() {
-    let config = GeolocationConfig::bundled();
+fn fixture_mmdb_lookup_uses_the_bounded_cache() {
+    let config = GeolocationConfig::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/GeoIP2-City-Test.mmdb"
+    ));
     let telemetry = InternalTelemetry::new();
     let engine = match GeolocationEngine::open(&config, telemetry.clone()) {
         Ok(engine) => engine,
-        Err(error) => panic!("bundled MMDB startup failed: {error}"),
+        Err(error) => panic!("fixture MMDB startup failed: {error}"),
     };
-    let address = IpAddr::from([8, 8, 8, 8]);
+    let address = IpAddr::from([81, 2, 69, 160]);
 
     let first = engine.lookup(address);
     let second = engine.lookup(address);
 
-    assert!(first.is_some());
+    let location = first.as_ref().expect("fixture address has a location");
+    assert_eq!(location.country_code.as_deref(), Some("GB"));
+    assert_eq!(location.country.as_deref(), Some("United Kingdom"));
     assert!(first == second);
     let snapshot = telemetry.snapshot();
     assert_eq!(snapshot.geolocation_cache_misses, 1);
     assert_eq!(snapshot.geolocation_cache_hits, 1);
     assert_eq!(snapshot.geolocation_errors, 0);
+}
+
+#[test]
+fn loaded_database_remains_available_after_its_file_is_removed() {
+    let fixture = include_bytes!("fixtures/GeoIP2-City-Test.mmdb");
+    let path = temporary_database(fixture);
+    let config = GeolocationConfig::new(&path);
+    let engine = GeolocationEngine::open(&config, InternalTelemetry::new()).unwrap();
+
+    std::fs::remove_file(&path).unwrap();
+
+    let location = engine
+        .lookup(IpAddr::from([81, 2, 69, 160]))
+        .expect("the loaded snapshot remains usable");
+    assert_eq!(location.country_code.as_deref(), Some("GB"));
+    assert!(matches!(
+        GeolocationEngine::open(&config, InternalTelemetry::new()),
+        Err(GeolocationError::DatabaseOpen)
+    ));
 }
 
 #[test]

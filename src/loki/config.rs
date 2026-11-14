@@ -192,9 +192,15 @@ impl LokiConfig {
 
 impl fmt::Debug for LokiConfig {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut push_url = self.push_url.clone();
+        let _ = push_url.set_username("");
+        let _ = push_url.set_password(None);
+        push_url.set_query(None);
+        push_url.set_fragment(None);
+
         formatter
             .debug_struct("LokiConfig")
-            .field("push_url", &self.push_url)
+            .field("push_url", &push_url.as_str())
             .field("tenant_id", &self.tenant_id)
             .field("auth", &self.auth)
             .field("batch", &self.batch)
@@ -202,6 +208,28 @@ impl fmt::Debug for LokiConfig {
             .field("retry", &self.retry)
             .field("shutdown", &self.shutdown)
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod debug_tests {
+    use super::*;
+
+    #[test]
+    fn debug_redacts_credentials_even_if_public_url_was_mutated() {
+        let mut config = LokiConfig::new("https://loki.example/loki/api/v1/push").unwrap();
+        config.push_url = Url::parse(
+            "https://alice:password@loki.example/loki/api/v1/push?token=secret#fragment",
+        )
+        .unwrap();
+
+        let debug = format!("{config:?}");
+
+        assert!(!debug.contains("alice"));
+        assert!(!debug.contains("password"));
+        assert!(!debug.contains("secret"));
+        assert!(!debug.contains("fragment"));
+        assert!(debug.contains("https://loki.example/loki/api/v1/push"));
     }
 }
 

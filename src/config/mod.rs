@@ -173,7 +173,7 @@ pub struct TelemetryConfig {
 }
 
 impl TelemetryConfig {
-    /// Validates the configuration befaure any telemetry component starts.
+    /// Validates the configuration before any telemetry component starts.
     pub fn validate(&self) -> Result<(), ConfigError> {
         validate_non_empty("name", &self.service.name)?;
         validate_non_empty("environment", &self.service.environment)?;

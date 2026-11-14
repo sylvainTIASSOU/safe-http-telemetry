@@ -1,16 +1,13 @@
 # Axum integration
 
-The `axum` feature enables the Axum adapter and implies the `tower` feature.
-The middleware observes requests without performing Loki network operations
-on the application request path.
+The `axum` feature enables the Axum adapter and the underlying `tower` feature. Apply the telemetry layer after registering routes so Axum's `MatchedPath` supplies stable route templates such as `/users/{id}`. The middleware records HTTP lifecycle events; it does not send a Loki request from the application request path.
 
-## Router integration
+## Build the queue and router
 
-Register routes before applying the telemetry layer. The adapter reads
-`axum::extract::MatchedPath`, so `/users/123` is associated with the normalized
-route `/users/{id}`.
+The following wiring uses a minimal profile and excludes health checks. A queue needs a consumer: the [minimal example](../examples/minimal_axum.rs) prints events, and the [Loki example](../examples/axum_loki.rs) starts an exporter.
 
 ```rust
+use axum::{routing::get, Router};
 use safe_http_telemetry::{
     axum_adapter::axum_telemetry_layer,
     core::telemetry::InternalTelemetry,
@@ -19,87 +16,45 @@ use safe_http_telemetry::{
     tower_integration::MiddlewareConfig,
 };
 
-let queue = BoundedEventQueue::new(
-    QueueConfig::new(1_024),
-    InternalTelemetry::default(),
-)?;
-
+let queue = BoundedEventQueue::new(QueueConfig::new(1_024), InternalTelemetry::new())?;
 let mut policies = RoutePolicySet::new(CaptureProfile::Minimal);
 policies.add_policy(
-    RoutePolicy::new(
-        RoutePattern::exact("/health"),
-        CaptureProfile::Minimal,
-    )
-    .exclude(),
+    RoutePolicy::new(RoutePattern::exact("/health"), CaptureProfile::Minimal).exclude(),
 )?;
-
-let telemetry = axum_telemetry_layer(
-    queue.clone(),
-    policies,
-    MiddlewareConfig::default(),
-)?;
-
-let app = axum::Router::new()
-    .route("/users/{id}", axum::routing::get(user_handler))
-    .route("/health", axum::routing::get(health_handler))
-    .layer(telemetry);
+let layer = axum_telemetry_layer(queue.clone(), policies, MiddlewareConfig::default())?;
+let app = Router::new()
+    .route("/users/{id}", get(|| async { "user" }))
+    .route("/health", get(|| async { "OK" }))
+    .layer(layer);
 ```
 
+The fragment assumes an enclosing function returning an error type that accepts the constructors' errors. The full files in `examples/` compile and run with the commands in the [examples guide](../examples/README.md).
 
-Requests without a matched route use the stable route value unmatched.
-Their raw paths remain separate from normalized routes and never become Loki
-labels.
-Request IDs
-Incoming x-request-id propagation is disabled by default. Enable it only
-when its use is compatible with the application's trust boundaries:
-rust
+The event's `request.path` field is always `[OMITTED]`; raw URL paths are not exported because path segments can contain credentials or reset tokens. Matched routes are recorded using Axum's normalized route template. Unmatched requests use the stable `unmatched` route value. Custom Tower `RouteResolver` implementations must return a stable, non-sensitive route template and must never return the raw path. The raw path is used internally for route-policy matching, but is not added to telemetry events or tracing spans.
+
+## Request IDs and client IPs
+
+The middleware generates request IDs. Incoming `x-request-id` values are ignored by default; enable `trust_incoming_request_id` only when your application's trust boundary permits client-controlled IDs:
+
+```rust
 let config = MiddlewareConfig {
     trust_incoming_request_id: true,
     ..MiddlewareConfig::default()
 };
-Incoming values are bounded and validated. Invalid values are replaced by a
-generated identifier.
-Responses and streaming
-Response status, headers, data frames and trailers are forwarded unchanged.
-The final event is emitted after the complete body has been transmitted.
-Streaming bodies are observed frame by frame and are never collected in full
-by the middleware.
-Dropping a request future or an incomplete response body releases its request
-state. A cancellation event is emitted by default. This can be disabled with
-emit_cancellation_events: false; internal cancellation accounting remains
-active.
-Timeouts and errors
-AxumErrorClassifier recognizes Tower's boxed
-tower::timeout::error::Elapsed as RequestFailure::Timeout. Other service
-errors are classified as server errors. Error messages are never copied into
-telemetry events.
-To observe a timeout as a typed error rather than as a cancellation, the
-telemetry service must wrap the Tower timeout service. When using
-Router::layer for normalized routes, application timeout handling that
-returns an actual HTTP response is instead observed with that response's real
-status code.
-No synthetic HTTP status is created when a failure occurs before response
-headers.
-Loki exporter ownership and shutdown
-Keep a clone of the bounded queue for the middleware and retain the
-LokiExporterHandle for application shutdown.
-The shutdown order is:
-stop accepting new HTTP connections;
-complete Axum's graceful connection shutdown;
-call LokiExporterHandle::shutdown;
-respect the configured drain deadline and inspect its report.
-Do not spawn one exporter per request. The exporter owns one fixed worker
-group for the application lifetime.
-Current capture boundary
+```
 
+Accepted values are bounded and validated. Invalid values are replaced. `Forwarded` and `X-Forwarded-For` headers are ignored unless the direct peer is in `config.client_ip.trusted_proxies`. The [complete example](../examples/axum_loki.rs) accepts explicit `TRUSTED_PROXY_CIDRS`; do not trust broad public ranges.
 
-## Executable examples and real Loki
+## Capture and error behavior
 
-The repository includes a minimal Axum server and an Axum server connected to a
-real local Loki instance. See [the examples guide](../examples/README.md) for
-startup, request, query, graceful shutdown and cleanup commands.
+`Minimal` records correlation, method, normalized route, status, and timing. `Standard` adds filtered query parameters and headers. `Detailed` permits bounded, redacted request and response bodies when the `body-capture` feature is enabled. Route policies can select a narrower profile or exclude a route. See [capture policies](policies.md) and [redaction](redaction.md).
 
-The real-Loki HTTP end-to-end test is ignored by default. It starts its own Axum
-server, sends one request in `Minimal` mode, drains the exporter with a deadline
-and verifies the exported event and its controlled labels. Normal CI therefore
-remains independent from Docker and external services.
+Response status, headers, data frames, and trailers pass through unchanged. Streaming bodies are observed frame by frame; the final event is emitted when the response body completes. A dropped request or response body emits a cancellation event by default. Set `emit_cancellation_events: false` to suppress that event while retaining internal cancellation accounting.
+
+The Axum classifier recognizes Tower's typed timeout error. Other service errors are classified as server errors without copying error messages into telemetry. If application timeout handling returns an HTTP response, that response's actual status is recorded. No status is invented before response headers exist.
+
+## Lifecycle
+
+Start one queue and one consumer or exporter group for the application, not one per request. On shutdown, stop accepting HTTP traffic, let Axum finish graceful connection shutdown, shut down any tracer provider, then call `LokiExporterHandle::shutdown()`. Inspect `ShutdownReport` for abandoned events and worker failures. The exporter has a configured drain deadline.
+
+The [examples guide](../examples/README.md) includes commands for running the server, querying Loki, and exercising the ignored real-Loki tests.

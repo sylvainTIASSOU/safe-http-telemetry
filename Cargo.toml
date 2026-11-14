@@ -1,18 +1,19 @@
 [package]
 name = "safe-http-telemetry"
-version = "0.1.0-dev.0"
+version = "0.1.0"
 edition = "2021"
 rust-version = "1.85"
 license = "MIT"
-description = "Safe, bounded HTTP telemetry for Axum, tracing, Log Observability, OpenTelemetry and Grafana Loki"
+description = "Safe, bounded HTTP telemetry for Axum, tracing, OpenTelemetry, and Grafana Loki"
+repository = "https://github.com/sylvainTIASSOU/safe-http-telemetry"
 readme = "README.md"
 keywords = ["axum", "telemetry", "opentelemetry", "loki", "tracing"]
 categories = [
-    "development-tools::debugging",
-    "web-programming::http-server",
-    "network-programming::protocols::http",
+  "development-tools::debugging",
+  "web-programming::http-server",
+  "network-programming::protocols::http",
 ]
-publish = false
+exclude = ["/data/**", "/fuzz/**", "/wiki/**", "/.idea/**", "/.github/**"]
 
 [features]
 default = []
@@ -85,6 +86,7 @@ bytes = "=1.12.1"
 futures-util = "=0.3.34"
 http-body-util = "=0.1.5"
 criterion = { version = "0.5", features = ["async_tokio"] }
+proptest = "=1.10.0"
 
 [[example]]
 name = "minimal_axum"
@@ -99,10 +101,16 @@ required-features = ["axum", "loki", "tracing", "opentelemetry"]
 [[test]]
 name = "loki_http_e2e"
 path = "tests/loki_http_e2e.rs"
-required-features = ["axum", "loki"]
+required-features = ["axum", "loki", "body-capture"]
 
 [[bench]]
 name = "middleware_overhead"
 path = "benches/middleware_overhead.rs"
 required-features = ["axum", "loki", "tracing", "opentelemetry"]
 harness = false
+
+
+# Exclude the fuzz crate from the main workspace.
+# This avoids compiling libfuzzer-sys and its C++ dependencies for the main library.
+[workspace]
+exclude = ["fuzz"]

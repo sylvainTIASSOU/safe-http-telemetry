@@ -7,18 +7,17 @@ use tower::ServiceExt;
 use safe_http_telemetry::{
     axum_adapter::axum_telemetry_layer,
     core::telemetry::InternalTelemetry,
-    geolocation::GeolocationConfig,
     policy::{CaptureProfile, RoutePattern, RoutePolicy, RoutePolicySet},
     runtime::queue::{BoundedEventQueue, QueueConfig},
     tower_integration::config::MiddlewareConfig,
 };
 
-// 1. Application Axum avec un endpoint POST pour tester les corps
+// 1. Axum app with a POST endpoint to test bodies
 fn base_app() -> Router {
     Router::new().route("/api/items", post(|| async { "Created" }))
 }
 
-// 2. Requête simple (sans body)
+// 2. Simple request (no body)
 fn mock_minimal_request() -> Request<Body> {
     Request::builder()
         .uri("/api/items")
@@ -26,7 +25,7 @@ fn mock_minimal_request() -> Request<Body> {
         .unwrap()
 }
 
-// 3. Requête riche (avec body, query et headers)
+// 3. Rich request (with body, query, and headers)
 fn mock_detailed_request() -> Request<Body> {
     let body_json = r#"{"name":"John","email":"john@example.com","password":"secret"}"#;
     Request::builder()
@@ -39,7 +38,7 @@ fn mock_detailed_request() -> Request<Body> {
         .unwrap()
 }
 
-// Helper pour créer une application avec un profil donné
+// Helper to create an app with a given profile
 fn create_app_with_profile(profile: CaptureProfile) -> Router {
     let queue = BoundedEventQueue::new(QueueConfig::new(1024), InternalTelemetry::new()).unwrap();
 
@@ -52,7 +51,8 @@ fn create_app_with_profile(profile: CaptureProfile) -> Router {
     base_app().layer(layer)
 }
 
-// Helper spécifique pour la géolocalisation (utilise la base embarquée)
+#[cfg(feature = "geolocation")]
+// Specific helper for geolocation (uses fixture database)
 fn create_app_with_geolocation() -> Router {
     let queue = BoundedEventQueue::new(QueueConfig::new(1024), InternalTelemetry::new()).unwrap();
 
@@ -65,7 +65,12 @@ fn create_app_with_geolocation() -> Router {
         .unwrap();
 
     let middleware_config = MiddlewareConfig {
-        geolocation: Some(GeolocationConfig::bundled()),
+        geolocation: Some(safe_http_telemetry::geolocation::GeolocationConfig::new(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/GeoIP2-City-Test.mmdb"
+            ),
+        )),
         ..Default::default()
     };
 
@@ -79,7 +84,7 @@ fn benchmark_middleware(c: &mut Criterion) {
 
     group.measurement_time(Duration::from_secs(3));
 
-    // --- Benchmark 1 : Baseline (Sans Middleware) ---
+    // --- Benchmark 1: Baseline (No Middleware) ---
     group.bench_function("Baseline (No Middleware)", |b| {
         let app = base_app();
         b.to_async(&rt).iter(|| {
@@ -91,7 +96,7 @@ fn benchmark_middleware(c: &mut Criterion) {
         });
     });
 
-    // --- Benchmark 2 : Profil Minimal ---
+    // --- Benchmark 2: Minimal Profile ---
     group.bench_function("Minimal Profile", |b| {
         let app = create_app_with_profile(CaptureProfile::Minimal);
         b.to_async(&rt).iter(|| {
@@ -103,12 +108,12 @@ fn benchmark_middleware(c: &mut Criterion) {
         });
     });
 
-    // --- Benchmark 3 : Profil Standard (Query + Headers) ---
+    // --- Benchmark 3: Standard Profile (Query + Headers) ---
     group.bench_function("Standard Profile (Metadata)", |b| {
         let app = create_app_with_profile(CaptureProfile::Standard);
         b.to_async(&rt).iter(|| {
             let app = app.clone();
-            // On utilise la requête détaillée mais le profil Standard ignorera le body
+            // Use a detailed request; the Standard profile should ignore its body.
             let req = mock_detailed_request();
             async move {
                 let _ = app.oneshot(req).await.unwrap();
@@ -116,7 +121,7 @@ fn benchmark_middleware(c: &mut Criterion) {
         });
     });
 
-    // --- Benchmark 4 : Profil Detailed (Body + Redaction) ---
+    // --- Benchmark 4: Detailed Profile (Body + Redaction) ---
     group.bench_function("Detailed Profile (Bodies & Redaction)", |b| {
         let app = create_app_with_profile(CaptureProfile::Detailed);
         b.to_async(&rt).iter(|| {
@@ -128,8 +133,9 @@ fn benchmark_middleware(c: &mut Criterion) {
         });
     });
 
-    // --- Benchmark 5 : Profil Standard + Géolocalisation ---
-    group.bench_function("Standard + Geolocation (Cache Miss/Hit)", |b| {
+    // --- Benchmark 5: Standard Profile + Geolocation ---
+    #[cfg(feature = "geolocation")]
+    group.bench_function("Standard + Geolocation (No Client IP)", |b| {
         let app = create_app_with_geolocation();
         b.to_async(&rt).iter(|| {
             let app = app.clone();

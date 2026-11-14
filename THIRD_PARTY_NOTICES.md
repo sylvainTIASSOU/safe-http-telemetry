@@ -1,31 +1,22 @@
 # Third-Party Notices
 
-## Source code
+## Crate and dependency licenses
 
-The project source code is licensed under the MIT License.
+The project source code is licensed under the MIT License; see [`LICENSE-MIT`](LICENSE-MIT). The complete versioned SPDX license inventory for every registry dependency in `Cargo.lock` (including optional, development, build, and target-specific dependencies) is in [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md).
 
-Dependencies retain their respective licenses. A complete license inventory must be produced before publication.
+The inventory records the license expressions declared by the locked package versions. When redistributing dependency source or binaries, preserve any copyright and license notices required by those dependencies. Update and review the inventory whenever `Cargo.lock` changes.
 
 ## DB-IP Lite
 
-The bundled geolocation source is DB-IP City Lite in MMDB format.
-
-DB-IP Lite data is distributed under the Creative Commons Attribution 4.0 International License.
-
-Required attribution:
+DB-IP City Lite is an optional external data source. No DB-IP database is shipped in the Cargo package. Applications obtain it separately under Creative Commons Attribution 4.0 International, retain its license and attribution, and comply with the provider's terms.
 
 **IP Geolocation by [DB-IP](https://db-ip.com)**
 
-Licensing information: &lt;https://db-ip.com/db/lite.php&gt;
+Terms: https://db-ip.com/db/lite.php
 
-The November 2026 database (`2026-11`) is included at
-`data/dbip-city-lite-2026-11.mmdb`. It contains 126,873,350 bytes and has SHA-1
-`a6f14e8da5565c713cdda9f1959a904b2eb88337`.
+## MaxMind test fixture
 
-The database remains under its own license and is not covered by the project's
-MIT License. Maintainers replace it deliberately and verify its integrity;
-applications receive updates by recompiling and redeploying. See
-`docs/geolocation.md` for the update procedure.
+`tests/fixtures/GeoIP2-City-Test.mmdb` contains synthetic test data from MaxMind, Inc., redistributed under the MIT license in `tests/fixtures/LICENSE-MaxMind`. Provenance and SHA-256 are recorded in `tests/fixtures/README.md`. It is not suitable for production lookups.
 
 ## Other MMDB databases
 

@@ -1,104 +1,84 @@
-# Bundled geolocation database
+# External geolocation database
 
-The `geolocation` feature embeds DB-IP City Lite in the crate. Lookups are local:
-they perform no network request and use no memory mapping. Enabling the feature
-increases the resulting binary size by the database size.
+The optional `geolocation` feature reads an explicit local MMDB file. The crate contains no production database and performs no downloads during Cargo builds, application startup, or HTTP requests. Obtain the database during deployment. Tests use a small licensed synthetic fixture and require no download.
 
-The bundled release is **2026-11**, stored at
-`data/dbip-city-lite-2026-11.mmdb`. Its uncompressed size is 126,873,350 bytes
-and its SHA-1 is `a6f14e8da5565c713cdda9f1959a904b2eb88337`.
+## Install a pinned DB-IP City Lite release
 
-DB-IP Lite is licensed under Creative Commons Attribution 4.0, separately from
-the project's MIT-licensed source code. Keep this attribution in distributed
-applications and documentation:
+DB-IP provides monthly releases under CC BY 4.0. Select a release from the [official download page](https://db-ip.com/db/lite.php), review its attribution requirements, and record the SHA-256 of the approved compressed archive in your deployment manifest. Obtain that checksum from a trusted release preparation process; computing it from an untrusted download does not authenticate the file.
 
-**IP Geolocation by [DB-IP](https://db-ip.com)**
+The repository provides a Python 3.8+ installer (Python is not a runtime dependency of the Rust crate):
 
-See &lt;https://db-ip.com/db/lite.php&gt; for the database license and download terms.
+```sh
+python3 scripts/download-mmdb.py \
+  --release "$DBIP_RELEASE" \
+  --sha256 "$DBIP_ARCHIVE_SHA256" \
+  --output ./data/dbip-city-lite.mmdb
+```
 
-## Application activation
+Both environment values are required: `DBIP_RELEASE` is a fixed `YYYY-MM`, and `DBIP_ARCHIVE_SHA256` is the 64-character SHA-256 of that release's `.mmdb.gz` archive. The script downloads only from DB-IP over HTTPS, verifies the archive hash and gzip integrity, limits both compressed and decompressed sizes to 128 MiB, checks the MMDB metadata marker, and replaces the destination atomically. Failed checks leave the previous file intact. The Rust engine parses the MMDB metadata at startup; malformed records encountered later produce an absent lookup result. There is no implicit selection of the latest release.
 
-Enable the Cargo features and explicitly opt in at middleware construction:
+Retain the attribution **IP Geolocation by [DB-IP](https://db-ip.com)** and the [CC BY 4.0 license](https://creativecommons.org/licenses/by/4.0/) with the deployment. Follow DB-IP's requirements for pages displaying or using the lookup results. Database licensing is separate from the crate's MIT license.
+
+## Configure the application
 
 ```toml
-safe-http-telemetry = { path = "../safe-http-telemetry", features = ["axum", "geolocation"] }
+[dependencies]
+safe-http-telemetry = { version = "0.1.0", features = ["axum", "geolocation"] }
+```
 
-
+```rust
 use safe_http_telemetry::{
     geolocation::GeolocationConfig,
     tower_integration::MiddlewareConfig,
 };
 
 let config = MiddlewareConfig {
-    geolocation: Some(GeolocationConfig::bundled()),
+    geolocation: Some(GeolocationConfig::new("/var/lib/geoip/dbip-city-lite.mmdb")),
     ..MiddlewareConfig::default()
 };
-GeolocationConfig::default() is equivalent to bundled(). The middleware
-default remains geolocation: None, so applications do not capture an IP or
-perform geolocation unless they opt in.
-The database is opened and validated once when the layer is built. The default
-configuration retains only the country code and English country name. Client-IP
-resolution follows the trusted-proxy rules in ClientIpConfig. The Minimal
-profile performs neither client-IP capture nor geolocation lookup.
-IP addresses and geographic values stay in the redacted JSON event. They never
-become Loki labels or Loki structured metadata.
-Optional external database
-An external local MMDB remains available for tests and advanced use cases:
-rust
-let config = GeolocationConfig::new("/absolute/path/to/local.mmdb");
-The application normally does not need this override. External files are loaded
-without memory mapping and are subject to max_database_bytes, just like the
-bundled database. Errors never include the file path or database contents.
-An ignored integration test can validate a compatible external database:
-sh
-SAFE_HTTP_TEST_MMDB=/absolute/path/to/local.mmdb \
-cargo test --locked --no-default-features --features geolocation \
-  --test geolocation external_local_mmdb_lookup_uses_the_bounded_cache \
-  -- --ignored --exact
-Maintainer update procedure
-DB-IP publishes Lite updates monthly. Updates are deliberate maintainer changes;
-there is no runtime download or hot update.
-Download the new release on a maintainer machine:
-sh
-release=YYYY-MM
-archive="/tmp/dbip-city-lite-${release}.mmdb.gz"
-curl --fail --location \
-  "https://download.db-ip.com/free/dbip-city-lite-${release}.mmdb.gz" \
-  --output "$archive"
-gzip --test "$archive"
-gzip -dc "$archive" > "data/dbip-city-lite-${release}.mmdb"
-sha1sum "data/dbip-city-lite-${release}.mmdb"
-stat -c '%s bytes' "data/dbip-city-lite-${release}.mmdb"
-Compare the checksum with the value published by DB-IP. Do not commit a
-database whose origin, integrity, license or schema has not been checked.
-In src/geolocation/mod.rs, update the include_bytes! filename and
-BUNDLED_DATABASE_RELEASE. Remove the previous bundled file.
-Update the release, size and checksum in this guide and in
-THIRD_PARTY_NOTICES.md.
-If the database exceeds DEFAULT_MAX_DATABASE_BYTES, review the new size and
-deliberately adjust the bound rather than disabling the check.
-Run the complete stable and MSRV validation suites, including the automated
-bundled-database and HTTP integration tests.
-Commit the MMDB, source, notices and lockfile changes together when the
-lockfile changed.
-A database update changes the crate contents. Every application must therefore
-be recompiled and redeployed to receive it; already running binaries retain the
-release with which they were built.
+```
 
-mkdir -p data
+The path is required and cannot be empty. Enabling geolocation with a missing, unreadable, corrupt, or oversized database fails layer construction. `geolocation: None` disables lookups without requiring a file. There is no `GeolocationConfig::default()` or `bundled()` fallback.
 
-curl --fail --location \
-  "https://download.db-ip.com/free/dbip-city-lite-2026-11.mmdb.gz" \
-  --output /tmp/dbip-city-lite-2026-11.mmdb.gz
+Loading happens once at startup, with a 128 MiB default limit and no memory mapping. Cloned engines share the loaded bytes and bounded cache. Default output contains only country code and English country name. Trusted-proxy rules govern the client IP. Minimal capture performs no IP capture or lookup. IP and geographical fields never become Loki labels or structured metadata.
 
-gzip --test /tmp/dbip-city-lite-2026-11.mmdb.gz
+For the `axum_loki` example, enable `geolocation` and supply `SAFE_HTTP_MMDB_PATH`. When this variable is absent, the example disables geolocation; an explicitly empty or invalid path fails startup.
 
-gzip -dc /tmp/dbip-city-lite-2026-11.mmdb.gz \
-  > data/dbip-city-lite-2026-11.mmdb
+```sh
+SAFE_HTTP_MMDB_PATH=./data/dbip-city-lite.mmdb \
+  cargo run --locked --example axum_loki \
+  --features axum,loki,tracing,opentelemetry,body-capture,geolocation
+```
 
-printf '%s  %s\n' \
-  'a6f14e8da5565c713cdda9f1959a904b2eb88337' \
-  'data/dbip-city-lite-2026-11.mmdb' \
-  | sha1sum -c -
+## Docker deployment
 
-test "$(stat -c %s data/dbip-city-lite-2026-11.mmdb)" = "126873350"
+Mount the directory containing the file in read-only mode; mounting the directory allows atomic file replacement to be visible after a process restart:
+
+```yaml
+services:
+  app:
+    volumes:
+      - ./data:/var/lib/geoip:ro
+    environment:
+      SAFE_HTTP_MMDB_PATH: /var/lib/geoip/dbip-city-lite.mmdb
+```
+
+`SAFE_HTTP_MMDB_PATH` is interpreted by the example application; other applications must read their own configuration and pass the path to `GeolocationConfig::new`.
+
+## Updates and rollback
+
+Approve a new release and checksum, install it using the same script, then restart the application to load it. Keep the previous approved file separately for rollback. An engine that is already running retains its in-memory database and cache until it is replaced; no recompilation is needed. There is no hot reload or scheduled downloader inside the crate.
+
+Production files under `data/` are ignored by Git and excluded from the Cargo package. The small test fixture under `tests/fixtures/` is included with its own license. Removing the old file from the current Git tree does not rewrite existing Git history or LFS storage.
+
+## Validation
+
+```sh
+python3 -m unittest discover -s scripts -p 'test_*.py'
+cargo test --locked --all-features --test geolocation --test geolocation_http
+SAFE_HTTP_TEST_MMDB=./data/dbip-city-lite.mmdb \
+  cargo test --locked --all-features --test geolocation \
+  external_local_mmdb_lookup_uses_the_bounded_cache -- --ignored --exact
+```
+
+The last command is optional and checks a real externally supplied database using `8.8.8.8`. The normal suite uses synthetic data at `81.2.69.160` and runs fully offline.

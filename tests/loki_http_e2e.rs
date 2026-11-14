@@ -185,10 +185,7 @@ async fn run_scenario() -> TestResult<()> {
         event["request"]["route"].as_str(),
         Some("/e2e/items/{item_id}")
     );
-    assert_eq!(
-        event["request"]["path"].as_str(),
-        Some("/e2e/items/item-fictitious-001")
-    );
+    assert_eq!(event["request"]["path"].as_str(), Some("[OMITTED]"));
     assert_eq!(event["response"]["status_code"].as_u64(), Some(201));
     assert_eq!(event["response"]["outcome"].as_str(), Some("success"));
 
@@ -213,6 +210,7 @@ async fn run_scenario() -> TestResult<()> {
 
     let serialized_line = serde_json::to_string(&event)?;
     assert!(!serialized_line.contains(FICTITIOUS_SECRET));
+    assert!(!serialized_line.contains("item-fictitious-001"));
     assert!(!serialized_line.contains("api_key"));
     assert!(!serialized_line.contains("item-fictitious-001?"));
 
@@ -412,10 +410,10 @@ async fn detailed_http_event_redacts_secrets_and_exports_correctly() {
     use std::time::Duration;
     use tokio::time::sleep;
 
-    // 1. Setup de l'application Axum avec profil Detailed
+    // 1. Setup Axum app with Detailed profile
     let (_queue, exporter, app) = setup_detailed_test_app().await;
 
-    // Démarrage du serveur sur un port aléatoire
+    // Start server on a random port
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
@@ -423,7 +421,7 @@ async fn detailed_http_event_redacts_secrets_and_exports_correctly() {
         axum::serve(listener, app).await.unwrap();
     });
 
-    // 2. Envoi de la requête avec des secrets fictifs
+    // 2. Send request with fictitious secrets
     let client = Client::new();
     let secret_password = "super-secret-password-123";
     let secret_token = "bearer-secret-token-456";
@@ -444,14 +442,14 @@ async fn detailed_http_event_redacts_secrets_and_exports_correctly() {
 
     assert_eq!(response.status(), 200);
 
-    // La réponse du handler contient aussi un secret fictif
+    // The handler response also contains a fictitious secret
     let response_body: serde_json::Value = response.json().await.unwrap();
     assert_eq!(response_body["status"], "ok");
 
-    // 3. Attendre que le batch soit exporté vers Loki (flush_interval est de 250ms)
+    // 3. Wait for the batch to be exported to Loki (flush_interval is 250ms)
     sleep(Duration::from_millis(1000)).await;
 
-    // 4. Interroger Loki pour récupérer l'événement
+    // 4. Query Loki to retrieve the event
     let loki_url = std::env::var("LOKI_PUSH_URL")
         .unwrap_or_else(|_| "http://127.0.0.1:3100/loki/api/v1/push".to_owned())
         .replace("/push", "/query_range");
@@ -476,7 +474,7 @@ async fn detailed_http_event_redacts_secrets_and_exports_correctly() {
 
     let loki_json: serde_json::Value = loki_response.json().await.unwrap();
 
-    // 5. Vérifications
+    // 5. Assertions
     let streams = loki_json["data"]["result"]
         .as_array()
         .expect("No streams returned");
@@ -484,36 +482,36 @@ async fn detailed_http_event_redacts_secrets_and_exports_correctly() {
 
     let first_stream = &streams[0];
 
-    // A. Vérifier que les labels ne contiennent PAS de secrets (faible cardinalité)
+    // A. Ensure labels do NOT contain secrets (low cardinality)
     let labels = first_stream["stream"].as_object().unwrap();
     assert!(labels.contains_key("service"));
     assert_eq!(labels["service"], "e2e-detailed-test");
     assert_eq!(labels["event_type"], "http");
 
-    // B. Vérifier le contenu de la ligne de log
+    // B. Check log line content
     let values = first_stream["values"].as_array().unwrap();
-    // values[0][1] correspond à la ligne de log JSON
+    // values[0][1] corresponds to the JSON log line
     let log_line = values[0][1].as_str().expect("Log line is not a string");
 
-    // Le secret ne doit apparaître NULLE PART
+    // The secret must not appear anywhere.
     assert!(
         !log_line.contains(secret_password),
         "Password leaked into Loki!"
     );
     assert!(!log_line.contains(secret_token), "Token leaked into Loki!");
 
-    // Le secret de la réponse ne doit pas fuiter non plus
+    // The response secret must not leak either.
     let secret_in_response = "secret-in-response-789";
     assert!(
         !log_line.contains(secret_in_response),
         "Response secret leaked into Loki!"
     );
 
-    // Les valeurs attendues doivent être là
+    // The expected values must be present.
     assert!(log_line.contains("[REDACTED]"), "Redaction marker missing");
     assert!(log_line.contains("alice"), "Safe data missing");
 
-    // C. Vérifier les métadonnées structurées
+    // C. Check structured metadata.
     let metadata = first_stream
         .get("metadata")
         .unwrap_or(&serde_json::Value::Null);
@@ -521,16 +519,16 @@ async fn detailed_http_event_redacts_secrets_and_exports_correctly() {
     assert!(!metadata_str.contains(secret_password));
     assert!(!metadata_str.contains(secret_token));
 
-    // Arrêt propre
+    // Shut down cleanly.
     exporter.shutdown().await;
 }
 
-// --- Helpers pour le test détaillé ---
+// --- Helpers for the detailed test ---
 
 async fn mock_detailed_handler(
     axum::Json(_payload): axum::Json<serde_json::Value>,
 ) -> axum::Json<serde_json::Value> {
-    // Ce handler renvoie un secret qui DOIT être masqué dans le log de réponse
+    // This handler returns a secret that MUST be redacted from the response log.
     axum::Json(serde_json::json!({
         "status": "ok",
         "access_token": "secret-in-response-789"
@@ -555,11 +553,11 @@ async fn setup_detailed_test_app() -> (
     };
     use std::time::Duration;
 
-    // 1. File d'attente
+    // 1. Event queue.
     let queue = BoundedEventQueue::new(QueueConfig::new(1_024), InternalTelemetry::new())
         .expect("Failed to create queue");
 
-    // 2. Redactor (nécessaire pour instancier le middleware, même si le test se concentre sur l'export)
+    // 2. Redactor (required to construct the middleware, although this test focuses on export).
     let _redactor = Redactor::new(
         &RedactionConfig::default(),
         &CaptureLimits::default(),
@@ -567,7 +565,7 @@ async fn setup_detailed_test_app() -> (
     )
     .expect("Failed to create redactor");
 
-    // 3. Configuration du service
+    // 3. Service configuration.
     let service_config = ServiceConfig {
         name: "e2e-detailed-test".to_owned(),
         environment: "test".to_owned(),
@@ -575,24 +573,24 @@ async fn setup_detailed_test_app() -> (
         region: None,
     };
 
-    // 4. Configuration Loki (flush très rapide pour le test)
+    // 4. Loki configuration (use a short flush interval for the test).
     let push_url = std::env::var("LOKI_PUSH_URL")
         .unwrap_or_else(|_| "http://127.0.0.1:3100/loki/api/v1/push".to_owned());
 
     let mut loki_config = LokiConfig::new(push_url).expect("Invalid Loki config");
     loki_config.batch.max_events = 10;
-    loki_config.batch.flush_interval = Duration::from_millis(100); // Flush rapide
+    loki_config.batch.flush_interval = Duration::from_millis(100); // Flush quickly.
     loki_config.request_timeout = Duration::from_secs(2);
     loki_config.retry.max_retries = 1;
     loki_config.shutdown.drain = true;
     loki_config.shutdown.deadline = Duration::from_secs(2);
 
-    // 5. Démarrage de l'exporteur
+    // 5. Start the exporter.
     let exporter = LokiExporter::new(loki_config, service_config, queue.clone(), 1)
         .expect("Failed to start exporter")
         .start();
 
-    // 6. Politiques de capture (Detailed pour notre route de test)
+    // 6. Capture policies (use Detailed for the test route).
     let mut policies = RoutePolicySet::new(CaptureProfile::Minimal);
     policies
         .add_policy(RoutePolicy::new(
@@ -601,10 +599,10 @@ async fn setup_detailed_test_app() -> (
         ))
         .expect("Failed to add policy");
 
-    // 7. Middleware Config (sans géolocalisation pour ce test spécifique)
+    // 7. Middleware configuration (geolocation is disabled for this test).
     let middleware_config = MiddlewareConfig::default();
 
-    // 8. Couche de télémétrie
+    // 8. Telemetry layer.
     let telemetry_layer = axum_telemetry_layer(queue.clone(), policies, middleware_config)
         .expect("Failed to create telemetry layer");
 

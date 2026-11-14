@@ -1,4 +1,4 @@
-use std::{env, time::Duration};
+use std::{env, net::SocketAddr, time::Duration};
 
 use axum::{
     routing::{get, post},
@@ -10,7 +10,6 @@ use safe_http_telemetry::{
     axum_adapter::axum_telemetry_layer,
     config::{CaptureLimits, RedactionConfig, ServiceConfig},
     core::telemetry::InternalTelemetry,
-    geolocation::GeolocationConfig,
     loki::{config::LokiConfig, exporter::LokiExporter},
     policy::{CaptureProfile, RoutePattern, RoutePolicy, RoutePolicySet},
     redaction::Redactor,
@@ -18,10 +17,10 @@ use safe_http_telemetry::{
     tower_integration::config::MiddlewareConfig,
     tracing_integration::business::{BusinessLogConfig, BusinessLogLayer},
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tracing_subscriber::prelude::*;
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize)]
 struct ItemPayload {
     name: String,
     email: String,
@@ -62,13 +61,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .try_init()?;
 
     let service = ServiceConfig {
-        name: "safe-http-telemetry-example".to_owned(),
-        environment: "development".to_owned(),
-        version: "0.1.0".to_owned(),
-        region: None,
+        name: env::var("SERVICE_NAME").unwrap_or_else(|_| "safe-http-telemetry-example".to_owned()),
+        environment: env::var("SERVICE_ENVIRONMENT").unwrap_or_else(|_| "development".to_owned()),
+        version: env::var("SERVICE_VERSION")
+            .unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_owned()),
+        region: env::var("SERVICE_REGION").ok(),
     };
 
     let mut loki_config = LokiConfig::new(push_url)?;
+    if let Ok(token) = env::var("LOKI_BEARER_TOKEN") {
+        loki_config = loki_config.with_bearer_token(token);
+    }
+    if let Ok(tenant_id) = env::var("LOKI_TENANT_ID") {
+        loki_config = loki_config.with_tenant_id(tenant_id);
+    }
     loki_config.batch.max_events = 100;
     loki_config.batch.flush_interval = Duration::from_millis(250);
     loki_config.request_timeout = Duration::from_secs(2);
@@ -78,39 +84,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let exporter = LokiExporter::new(loki_config, service, queue.clone(), 1)?.start();
 
-    // --- Capture policy ---
+    // Keep HTTP telemetry minimal by default; opt in to detailed routes.
     let mut policies = RoutePolicySet::new(CaptureProfile::Minimal);
 
-    // Health check exclu
+    // Health checks do not produce events.
     policies.add_policy(
         RoutePolicy::new(RoutePattern::exact("/health"), CaptureProfile::Minimal).exclude(),
     )?;
 
-    // Hello keep in minimal
+    // Demonstrate bounded, redacted body capture when body-capture is enabled.
     policies.add_policy(RoutePolicy::new(
-        RoutePattern::exact("/hello/{name}"),
-        CaptureProfile::Minimal,
-    ))?;
-
-    // Routes détaillées pour tester la capture de corps
-    policies.add_policy(RoutePolicy::new(
-        RoutePattern::exact("/e2e/items"),
+        RoutePattern::exact("/items"),
         CaptureProfile::Detailed,
     ))?;
     policies.add_policy(RoutePolicy::new(
-        RoutePattern::exact("/e2e/form"),
+        RoutePattern::exact("/form"),
         CaptureProfile::Detailed,
     ))?;
     policies.add_policy(RoutePolicy::new(
-        RoutePattern::exact("/e2e/text"),
+        RoutePattern::exact("/text"),
         CaptureProfile::Detailed,
     ))?;
 
-    // --- Configuration du middleware avec géolocalisation ---
-    let middleware_config = MiddlewareConfig {
-        geolocation: Some(GeolocationConfig::bundled()),
+    let mut middleware_config = MiddlewareConfig {
+        #[cfg(feature = "geolocation")]
+        geolocation: env::var_os("SAFE_HTTP_MMDB_PATH")
+            .map(safe_http_telemetry::geolocation::GeolocationConfig::new),
         ..MiddlewareConfig::default()
     };
+    if let Ok(cidrs) = env::var("TRUSTED_PROXY_CIDRS") {
+        middleware_config.client_ip.trusted_proxies = cidrs
+            .split(',')
+            .map(str::trim)
+            .map(str::parse)
+            .collect::<Result<_, _>>()?;
+    }
 
     let telemetry_layer = axum_telemetry_layer(queue, policies, middleware_config)?;
 
@@ -123,24 +131,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }),
         )
         .route("/health", get(|| async { "OK\n" }))
-        .route("/e2e/items", post(create_item))
-        .route("/e2e/form", post(create_form))
-        .route("/e2e/text", post(create_text))
+        .route("/items", post(create_item))
+        .route("/form", post(create_form))
+        .route("/text", post(create_text))
         .layer(telemetry_layer);
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:3030").await?;
-    println!("Axum listening on http://127.0.0.1:3030");
-    println!("Try: curl http://127.0.0.1:3030/hello/fictitious-user");
-    println!("Try: curl -X POST http://127.0.0.1:3030/e2e/items -H 'content-type: application/json' -d '{{\"name\":\"John\",\"email\":\"john@example.com\",\"password\":\"secret\",\"token\":\"tok_123\"}}'");
+    let bind_address: SocketAddr = env::var("APP_BIND_ADDR")
+        .unwrap_or_else(|_| "127.0.0.1:3030".to_owned())
+        .parse()?;
+    let listener = tokio::net::TcpListener::bind(bind_address).await?;
+    println!("Axum listening on http://{bind_address}");
     println!("Press Ctrl+C to drain telemetry and stop.");
 
     let server_result = axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await;
 
+    let tracer_result = tracer_provider.shutdown();
     let shutdown_report = exporter.shutdown().await;
-    tracer_provider.shutdown()?;
     server_result?;
+    tracer_result?;
     println!("Loki shutdown: {shutdown_report:?}");
     if shutdown_report.abandoned_events != 0 {
         return Err("some telemetry events were abandoned during shutdown".into());
@@ -148,18 +158,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn create_item(Json(payload): Json<ItemPayload>) -> Json<ItemPayload> {
-    tracing::info!(item_name = %payload.name, "Item created via detailed profile");
-    // On renvoie le payload tel quel pour tester la capture du corps de réponse.
-    Json(payload)
+async fn create_item(Json(payload): Json<ItemPayload>) -> axum::http::StatusCode {
+    // Avoid logging or returning submitted personal data and credentials.
+    let _ = (payload.name, payload.email, payload.password, payload.token);
+    tracing::info!("Item accepted");
+    axum::http::StatusCode::CREATED
 }
 
 async fn create_form(Form(payload): Form<FormPayload>) -> &'static str {
-    tracing::info!(
-        username = %payload.username,
-        has_password = !payload.password.is_empty(),
-        "Form submitted via detailed profile"
-    );
+    let _ = (payload.username, payload.password);
+    tracing::info!("Form accepted");
     "Form received\n"
 }
 
