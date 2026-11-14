@@ -11,7 +11,7 @@ keywords = ["axum", "telemetry", "opentelemetry", "loki", "tracing"]
 categories = [
   "development-tools::debugging",
   "web-programming::http-server",
-  "network-programming::protocols::http",
+  "network-programming",
 ]
 exclude = ["/data/**", "/fuzz/**", "/wiki/**", "/.idea/**", "/.github/**"]
 

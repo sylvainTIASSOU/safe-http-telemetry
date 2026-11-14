@@ -115,7 +115,7 @@ The maintainer reports that every job is green for the current release candidate
 
 - Formatting, all-target/all-feature check and tests, Clippy, rustdoc, installer tests, MSRV tests, package inspection, and publish dry-run completed successfully.
 - A prior detailed CI run reported 37 targets, 197 passed, 0 failed, and 3 ignored on stable and Rust 1.85.0. The ignored tests are one external-MMDB lookup requiring `SAFE_HTTP_TEST_MMDB` and two real-Loki tests in `loki_http_e2e`; the real-Loki tests have since been run separately and passed.
-- The package dry-run contains 107 files: 616.7 KiB unpacked and 149.0 KiB compressed. The production database directory is excluded; the licensed synthetic fixture and dependency license inventory are included. Cargo's `aborting upload due to dry run` warning is expected and confirms that this job did not publish the crate.
+- The latest package verification contains 107 files: 622.8 KiB unpacked and 150.9 KiB compressed. The production database directory is excluded; the licensed synthetic fixture and dependency license inventory are included. An actual upload attempt was rejected because `network-programming::protocols::http` is not a supported category slug. The manifest now uses the supported `network-programming` category, and `cargo package --locked --offline --all-features --allow-dirty` passed after the correction. The crate has not yet been published.
 - `cargo-semver-checks` exited successfully using Git baseline `e6da66939fe103b07f890e832ca2ba0701e5e32f`. It classified `0.1.0-rc.1` → `0.1.0` as a major change and skipped all 260 individual lints (0 checked). This is expected for the first stable publication, which has no released API to preserve; it is not evidence that 260 API checks passed. Subsequent releases should compare against the previous stable API.
 - GitHub reported a non-blocking Node 20 deprecation notice for `actions/checkout@v4`. The CI run still passed; update the action runtime separately to remove the notice.
 - All three fuzz targets built and completed 30-second campaigns without a finding. This sandbox cannot run LeakSanitizer under its ptrace restrictions, so the campaigns used `ASAN_OPTIONS=detect_leaks=0`; AddressSanitizer checks remained active. An initial `crash-*` artifact was reproduced as this LeakSanitizer environment failure and was not a code crash.
@@ -138,7 +138,8 @@ Complete this checklist for the exact commit proposed for release. Attach or lin
 - [x] A 50-sample benchmark is recorded with hardware, operating system, toolchain, commit, and lockfile hash. CPU frequency scaling and per-profile outliers are documented as limits on comparisons.
 - [x] The identified raw-path disclosure is resolved by omitting raw paths from middleware events; regression tests cover event serialization and tracing output.
 - [x] The package archive is below the target registry limit and excludes production MMDB files. The licensed synthetic test fixture and license inventory are included.
-- [x] `cargo publish --dry-run --locked --all-features` succeeds with registry access; the job reports the 107-file package and size.
+- [x] The corrected package metadata passes offline package verification: 107 files, 622.8 KiB unpacked and 150.9 KiB compressed.
+- [ ] Retry `cargo publish --locked --all-features` after the unsupported category slug correction and confirm that crates.io accepts the upload.
 - [x] The locked dependency license inventory is recorded in [THIRD_PARTY_LICENSES.md](../THIRD_PARTY_LICENSES.md); review it when updating `Cargo.lock`.
 - [x] Version, changelog, README status, and release notes agree on the planned `0.1.0` first release.
 
