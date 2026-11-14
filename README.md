@@ -93,3 +93,11 @@ printf '%s  %s\n' \
 
 test "$(stat -c %s data/dbip-city-lite-2026-11.mmdb)" = "126873350"
 
+## Performance
+
+We take performance seriously. The middleware is designed to be non-blocking and bounded.
+You can find the detailed benchmark results and methodology in [docs/benchmarks.md](docs/benchmarks.md).
+
+To run the benchmarks yourself:
+```bash
+cargo bench --all-features
