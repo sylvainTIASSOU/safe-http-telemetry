@@ -33,3 +33,31 @@ To ensure accurate measurements of the middleware logic without network noise, r
 - Use `Minimal` for high-frequency, low-value endpoints (e.g., health checks, metrics).
 - Use `Standard` for most APIs where headers and query parameters are needed for debugging.
 - Use `Detailed` only on critical business routes (e.g., checkout, authentication) where body context is mandatory, and always enforce strict limits.
+
+```markdown
+## Load Test
+
+The Criterion benchmarks measure per-request overhead in isolation. For end-to-end throughput, use a load generator against the example server.
+
+### Commands
+
+```bash
+# Start the example server
+cargo run --example axum_loki --features axum,loki,geolocation,body-capture
+
+# In another terminal, run the load test
+oha -z 30s -c 50 http://127.0.0.1:3030/hello/fictitious-user
+What to observe
+Request throughput (requests per second) with and without the middleware.
+
+p99 latency increase.
+
+InternalTelemetry::snapshot(): accepted_events, dropped_events, queue_occupancy.
+
+Memory (RSS) of the example process: it must remain bounded.
+
+Note: Load tests are environment-dependent. Record the toolchain, the lockfile hash, and the hardware in the release notes.
+
+text
+
+---
