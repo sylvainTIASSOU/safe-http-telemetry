@@ -106,3 +106,9 @@ name = "middleware_overhead"
 path = "benches/middleware_overhead.rs"
 required-features = ["axum", "loki", "tracing", "opentelemetry"]
 harness = false
+
+
+# Exclude the fuzz crate from the main workspace.
+# This avoids compiling libfuzzer-sys and its C++ dependencies for the main library.
+[workspace]
+exclude = ["fuzz"]
