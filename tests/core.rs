@@ -161,6 +161,30 @@ fn cloned_telemetry_handles_share_counters() {
 }
 
 #[test]
+fn body_capture_counters_track_terminal_outcomes_without_http_data() {
+    let telemetry = InternalTelemetry::new();
+    let capture = CaptureInfo {
+        request_body_truncated: true,
+        response_body_truncated: true,
+        request_body_status: Some(BodyCaptureStatus::Captured),
+        response_body_status: Some(BodyCaptureStatus::Unsupported),
+    };
+
+    telemetry.record_body_capture_outcomes(&capture);
+
+    let snapshot = telemetry.snapshot();
+    assert_eq!(snapshot.captured_request_bodies, 1);
+    assert_eq!(snapshot.captured_response_bodies, 0);
+    assert_eq!(snapshot.unsupported_bodies, 1);
+    assert_eq!(snapshot.truncated_request_bodies, 1);
+    assert_eq!(snapshot.truncated_response_bodies, 1);
+
+    let diagnostics = format!("{snapshot:?}");
+    assert!(!diagnostics.contains("request_id"));
+    assert!(!diagnostics.contains("body_status"));
+}
+
+#[test]
 fn event_round_trips_through_json() {
     let event = sample_event();
 

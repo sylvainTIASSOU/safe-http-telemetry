@@ -675,6 +675,8 @@ impl RequestContext {
         }
 
         let mut timing = TimingInfo::new(self.started_at.elapsed().as_secs_f64() * 1_000.0);
+        #[cfg(feature = "body-capture")]
+        self.telemetry.record_body_capture_outcomes(&capture);
         timing.time_to_first_byte_ms = time_to_first_byte_ms;
         timing.body_duration_ms = body_duration_ms;
 

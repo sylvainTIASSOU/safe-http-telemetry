@@ -53,6 +53,7 @@ async fn fragmented_response_json_is_redacted_and_forwarded_without_change() {
         MiddlewareConfig::default(),
     );
     let receiver = queue.receiver();
+    let telemetry = queue.telemetry();
     let expected = b"{\"display\":\"alice\",\"token\":\"fictional-response-secret\",\"nested\":{\"password\":\"fictional-password\"}}";
 
     let service = service_fn(|_request: Request<()>| async move {
@@ -110,6 +111,13 @@ async fn fragmented_response_json_is_redacted_and_forwarded_without_change() {
     assert!(!event.capture.response_body_truncated);
     assert!(event.capture.request_body_status.is_none());
     assert_no_fictional_secret(&event);
+
+    let snapshot = telemetry.snapshot();
+    assert_eq!(snapshot.captured_request_bodies, 0);
+    assert_eq!(snapshot.captured_response_bodies, 1);
+    assert_eq!(snapshot.unsupported_bodies, 0);
+    assert_eq!(snapshot.truncated_request_bodies, 0);
+    assert_eq!(snapshot.truncated_response_bodies, 0);
 }
 
 #[tokio::test]
