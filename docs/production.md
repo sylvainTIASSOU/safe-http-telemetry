@@ -52,7 +52,7 @@ All internal structures are bounded. The following limits must be configured exp
 | `Standard` | Most business APIs where headers and query parameters are needed | ~2× |
 | `Detailed` | Critical routes (checkout, authentication, payment) where body context is mandatory | ~2.1× |
 
-> **Measured overhead** (from `benches/middleware_overhead.rs`): Baseline ~1.7 µs, Minimal ~21 µs, Standard ~46 µs, Detailed ~46 µs per request on the reference hardware. See `docs/benchmarks.md` for details.
+> **Benchmark context:** The recorded measurements predate the external database migration and are not release performance claims. See [the benchmark guide](benchmarks.md) for the methodology and required rerun.
 
 **Recommendation**: start with `Standard` for the default profile, and explicitly elevate `Detailed` only on the routes listed in your incident-response runbook.
 
@@ -75,14 +75,13 @@ Use `RoutePolicy` to disable body capture entirely on authentication and passwor
 ## 4. Geolocation
 
 ### Database
-The optional `geolocation` feature uses the **bundled DB-IP City Lite** MMDB database. The database is included in the crate source and embedded into applications that enable geolocation. The feature is opt-in; applications that do not enable it do not embed the database.
+The optional `geolocation` feature loads a local MMDB at startup from `GeolocationConfig::new(path)`. No production database is included in the crate. See [the deployment guide](geolocation.md) for the pinned installer, Docker mount, and update procedure.
 
-**Production checklist**:
-- [ ] Keep the bundled DB-IP database current and review its attribution and license.
-- [ ] If using an external MMDB, verify its origin and integrity before loading it.
-- [ ] Set `GeolocationConfig::new(path)` only when overriding the bundled database.
-- [ ] Keep `GeolocationConfig::cache_capacity` and `cache_ttl` bounded.
-- [ ] If you do not need city-level precision, enable `country_only` to reduce collected fields.
+- Pin the release and trusted archive SHA-256 in deployment configuration.
+- Retain the provider's attribution and license.
+- Use a read-only mount for the application, and update the file through the deployment process.
+- Restart after an update; existing engines retain their loaded database.
+- Configure bounded cache capacity and TTL. Select only country fields unless finer precision is needed.
 
 ### Trusted proxies
 `Forwarded` and `X-Forwarded-For` headers are **ignored by default**. If your service runs behind a reverse proxy, configure `TrustedProxyConfig` with the exact proxy CIDR ranges. An untrusted peer cannot inject forwarding headers.

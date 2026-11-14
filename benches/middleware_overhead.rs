@@ -7,7 +7,6 @@ use tower::ServiceExt;
 use safe_http_telemetry::{
     axum_adapter::axum_telemetry_layer,
     core::telemetry::InternalTelemetry,
-    geolocation::GeolocationConfig,
     policy::{CaptureProfile, RoutePattern, RoutePolicy, RoutePolicySet},
     runtime::queue::{BoundedEventQueue, QueueConfig},
     tower_integration::config::MiddlewareConfig,
@@ -52,7 +51,8 @@ fn create_app_with_profile(profile: CaptureProfile) -> Router {
     base_app().layer(layer)
 }
 
-// Specific helper for geolocation (uses bundled database)
+#[cfg(feature = "geolocation")]
+// Specific helper for geolocation (uses fixture database)
 fn create_app_with_geolocation() -> Router {
     let queue = BoundedEventQueue::new(QueueConfig::new(1024), InternalTelemetry::new()).unwrap();
 
@@ -65,7 +65,12 @@ fn create_app_with_geolocation() -> Router {
         .unwrap();
 
     let middleware_config = MiddlewareConfig {
-        geolocation: Some(GeolocationConfig::bundled()),
+        geolocation: Some(safe_http_telemetry::geolocation::GeolocationConfig::new(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/GeoIP2-City-Test.mmdb"
+            ),
+        )),
         ..Default::default()
     };
 
@@ -129,6 +134,7 @@ fn benchmark_middleware(c: &mut Criterion) {
     });
 
     // --- Benchmark 5: Standard Profile + Geolocation ---
+    #[cfg(feature = "geolocation")]
     group.bench_function("Standard + Geolocation (No Client IP)", |b| {
         let app = create_app_with_geolocation();
         b.to_async(&rt).iter(|| {

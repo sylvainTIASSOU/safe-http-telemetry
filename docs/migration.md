@@ -23,7 +23,7 @@ The following features are stable in `0.1.0`: `axum`, `tower`, `tracing`, `opent
 The default sensitive-field list has been extended. If you were relying on a field being **not** redacted (e.g., a custom `token` field that you considered safe), explicitly remove it from `RedactionConfig::sensitive_fields` after a risk assessment.
 
 ### Geolocation
-`GeolocationConfig::bundled()` validates the MMDB at startup. The database is bundled with the crate; if it is corrupt, startup fails with `GeolocationError::DatabaseInvalid`. Applications that override it with an external local MMDB must verify that file before deployment. See [the geolocation guide](geolocation.md) for attribution and packaging details.
+The release candidate now requires an external MMDB path. This is a breaking change from the earlier unpublished embedded-database API: replace `GeolocationConfig::bundled()` or `default()` with `GeolocationConfig::new(path)`. The `database_path` field is now a `PathBuf`, not an `Option<PathBuf>`, and `BUNDLED_DATABASE_RELEASE` has been removed. Keep `MiddlewareConfig::geolocation` set to `None` to disable the feature. Deploy the database separately and restart to load updates; see [the geolocation guide](geolocation.md). Missing files fail enabled layer construction without exposing their path in diagnostics.
 
 ### Loki exporter
 `LokiConfig::new(url)` rejects URLs with embedded credentials. Move credentials to the bearer-token or basic-auth fields.

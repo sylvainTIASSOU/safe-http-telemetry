@@ -32,9 +32,12 @@ fn queue() -> BoundedEventQueue {
     BoundedEventQueue::new(QueueConfig::new(8), InternalTelemetry::default()).unwrap()
 }
 
-fn bundled_config() -> MiddlewareConfig {
+fn fixture_config() -> MiddlewareConfig {
     MiddlewareConfig {
-        geolocation: Some(GeolocationConfig::bundled()),
+        geolocation: Some(GeolocationConfig::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/GeoIP2-City-Test.mmdb"
+        ))),
         ..MiddlewareConfig::default()
     }
 }
@@ -81,11 +84,11 @@ fn layer_startup_maps_database_errors_without_exposing_the_path() {
 }
 
 #[tokio::test]
-async fn bundled_mmdb_enriches_standard_http_events_and_shares_the_cache() {
+async fn fixture_mmdb_enriches_standard_http_events_and_shares_the_cache() {
     let queue = queue();
     let receiver = queue.receiver();
     let telemetry = queue.telemetry();
-    let mut config = bundled_config();
+    let mut config = fixture_config();
     config.client_ip.trusted_proxies = vec!["10.0.0.0/8".parse().unwrap()];
     let app = Router::new()
         .route("/orders/{id}", get(|| async { StatusCode::OK }))
@@ -94,13 +97,20 @@ async fn bundled_mmdb_enriches_standard_http_events_and_shares_the_cache() {
                 .unwrap(),
         );
 
-    app.clone().oneshot(request("8.8.8.8")).await.unwrap();
-    app.oneshot(request("8.8.8.8")).await.unwrap();
+    app.clone().oneshot(request("81.2.69.160")).await.unwrap();
+    app.oneshot(request("81.2.69.160")).await.unwrap();
 
     let first = expect_http(receiver.try_recv().expect("first geolocated event"));
     let second = expect_http(receiver.try_recv().expect("cached geolocated event"));
-    assert_eq!(first.request.client_ip.as_deref(), Some("8.8.8.8"));
-    assert!(first.request.geolocation.is_some());
+    assert_eq!(first.request.client_ip.as_deref(), Some("81.2.69.160"));
+    assert_eq!(
+        first
+            .request
+            .geolocation
+            .as_ref()
+            .and_then(|location| location.country_code.as_deref()),
+        Some("GB")
+    );
     assert!(first.request.geolocation == second.request.geolocation);
 
     let snapshot = telemetry.snapshot();
@@ -110,7 +120,7 @@ async fn bundled_mmdb_enriches_standard_http_events_and_shares_the_cache() {
 }
 
 #[tokio::test]
-async fn minimal_profile_never_queries_the_bundled_mmdb() {
+async fn minimal_profile_never_queries_the_fixture_mmdb() {
     let queue = queue();
     let receiver = queue.receiver();
     let telemetry = queue.telemetry();
@@ -120,12 +130,12 @@ async fn minimal_profile_never_queries_the_bundled_mmdb() {
             axum_telemetry_layer(
                 queue,
                 RoutePolicySet::new(CaptureProfile::Minimal),
-                bundled_config(),
+                fixture_config(),
             )
             .unwrap(),
         );
 
-    app.oneshot(request("8.8.8.8")).await.unwrap();
+    app.oneshot(request("81.2.69.160")).await.unwrap();
 
     let event = expect_http(receiver.try_recv().expect("minimal HTTP event"));
     assert!(event.request.client_ip.is_none());

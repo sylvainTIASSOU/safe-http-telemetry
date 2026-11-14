@@ -18,6 +18,7 @@ jobs:
         with:
           components: clippy, rustfmt
 
+      - run: python3 -m unittest discover -s scripts -p 'test_*.py'
       - run: cargo fmt --all -- --check
       - run: cargo check --locked --all-targets --all-features
       - run: cargo test --locked --all-targets --all-features
@@ -55,4 +56,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo publish --dry-run --locked
+      - run: cargo publish --dry-run --locked --all-features
+      - run: cargo package --locked --no-verify
+      - name: Enforce package size and database exclusions
+        run: |
+          python3 - <<'PYCODE'
+          import pathlib, tarfile
+          archive = next(pathlib.Path("target/package").glob("safe-http-telemetry-*.crate"))
+          assert archive.stat().st_size < 10_000_000, "crate exceeds the registry size limit"
+          with tarfile.open(archive) as package:
+              files = package.getnames()
+          assert not any("/data/" in name for name in files), "production data included"
+          assert any(name.endswith("tests/fixtures/GeoIP2-City-Test.mmdb") for name in files)
+          PYCODE

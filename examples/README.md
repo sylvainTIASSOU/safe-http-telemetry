@@ -125,3 +125,7 @@ minimal observation and detailed body capture. The checks include:
 - absent correlation IDs when OpenTelemetry is disabled;
 - absence of fictitious query, header, and body secrets;
 - drained shutdown with no abandoned events.
+
+## Optional geolocation
+
+Enable `geolocation` and set `SAFE_HTTP_MMDB_PATH` to an installed local database. Without the variable the example disables geolocation. See [database deployment](../docs/geolocation.md); the application never downloads the file itself.

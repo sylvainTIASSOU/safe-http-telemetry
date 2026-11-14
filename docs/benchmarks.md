@@ -14,13 +14,15 @@ cargo bench --locked --all-features
 
 Criterion writes estimates and raw samples under `target/criterion/`. Record the run date, commit, Rust version, operating system, CPU, and lockfile hash alongside any results used for a release decision. Do not compare numbers collected with different environments as if they were directly equivalent.
 
-### Local smoke-run results
+### Historical smoke-run results (before external database migration)
 
 An exploratory run was completed on 2026-11-14 with Rust 1.99.1 using:
 
 ```sh
 cargo bench --locked --all-features --bench middleware_overhead -- --sample-size 20
 ```
+
+These measurements predate the external-MMDB migration and must be repeated before release. The geolocation case now opens the small test fixture; it still measures the no-client-IP path.
 
 Environment: Fedora Linux x86_64, Intel Core i7-8565U CPU @ 1.80 GHz, eight logical CPUs. `Cargo.lock` SHA-256: `93fae80d240c36b23d86e2771526ec51c127f8a31d05d930989036c8a90420dd`.
 

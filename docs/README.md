@@ -9,7 +9,7 @@ Performance benchmarks are documented before implementation results are claimed.
 ## Guides
 
 - [Axum integration](axum.md)
-- [Bundled geolocation database](geolocation.md)
+- [External geolocation database](geolocation.md)
 - [Capture policies](policies.md)
 - [Sensitive-data redaction](redaction.md)
 - [Grafana and OpenTelemetry correlation](grafana-opentelemetry.md)

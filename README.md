@@ -2,7 +2,7 @@
 
 Safe, bounded HTTP telemetry for Axum, Tower, `tracing`, OpenTelemetry, and Grafana Loki.
 
-> **Status:** release candidate `0.1.0-rc.1`. The public API is frozen for the `0.1` release line. Feedback is welcome through GitHub issues.
+> **Status:** preparing release candidate `0.1.0-rc.1`. The API and package contents are under final review. Feedback is welcome through GitHub issues.
 
 ## Project decisions
 
@@ -11,7 +11,7 @@ Safe, bounded HTTP telemetry for Axum, Tower, `tracing`, OpenTelemetry, and Graf
 - Rust edition: 2021
 - Initial HTTP integration: Axum through Tower
 - Event format: versioned JSON
-- Geolocation: optional local DB-IP City Lite MMDB lookup; enabling it embeds the database in the application binary
+- Geolocation: optional local MMDB lookup from an explicit file path; production databases are downloaded separately during deployment
 
 ## Features
 
@@ -42,7 +42,7 @@ Add only the features your application needs:
 
 ```toml
 [dependencies]
-safe-http-telemetry = { version = "0.1", features = ["axum", "loki", "tracing"] }
+safe-http-telemetry = { version = "0.1.0-rc.1", features = ["axum", "loki", "tracing"] }
 ```
 
 For complete setup, shutdown ordering, Loki configuration, and runnable examples, see [the examples guide](examples/README.md) and [the Axum integration guide](docs/axum.md).
@@ -77,10 +77,12 @@ cargo test --locked --all-targets --all-features
 cargo clippy --locked --all-targets --all-features -- -D warnings
 cargo doc --locked --no-deps --all-features
 cargo +1.85.0 test --locked --all-targets --all-features -j 1
-cargo publish --dry-run --locked
+cargo publish --dry-run --locked --all-features
 ```
 
 The real-Loki end-to-end tests, fuzz targets, benchmarks, and release checklist are described in [docs/test-matrix.md](docs/test-matrix.md). The production limits and operational guidance are in [docs/production.md](docs/production.md).
+
+See [the geolocation guide](docs/geolocation.md) for the pinned download script, configuration, Docker mounts, and database updates.
 
 ## Performance
 

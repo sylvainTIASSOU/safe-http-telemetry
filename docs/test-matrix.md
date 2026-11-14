@@ -26,7 +26,7 @@ These tests use in-process services and mocks; they do not require a real Loki i
 | `axum_middleware` | Route normalization, streaming, and route exclusions |
 | `body_capture`, `request_body_capture`, `response_body_capture` | JSON, forms, text, binary data, truncation, invalid UTF-8, cancellation, and stream errors |
 | `business_events`, `business_tracing` | Business-event schema, tracing layer, correlation, and queue saturation |
-| `client_ip`, `geolocation`, `geolocation_http` | Direct and trusted-proxy IPs, labels, local lookup, and bounded cache |
+| `client_ip`, `geolocation`, `geolocation_http` | Direct and trusted-proxy IPs, labels, local fixture lookup, and bounded cache |
 | `config`, `core`, `policy`, `project-layout` | Configuration, event schema, policy resolution, and package identity |
 | `http_cancellation`, `http_failures`, `http_metadata`, `http_response_preservation` | Cancellation, handler/body errors, metadata, route policies, streaming, and response preservation |
 | `loki`, `loki_batch`, `loki_client`, `loki_exporter`, `loki_shutdown` | Payload format, batching, retries, authentication, worker behavior, drain, and deadlines |
@@ -64,7 +64,7 @@ The tests in `tests/loki_http_e2e.rs` are ignored by default and require the Lok
 ```sh
 docker compose -f examples/loki/docker-compose.yaml up -d
 cargo test --locked --features axum,loki,body-capture --test loki_http_e2e -- --ignored --test-threads=1
-docker compose -f examples/loki/docker-compose.yaml down --volumes
+docker compose -f examples/loki/docker-compose.yaml down
 ```
 
 See [examples/README.md](../examples/README.md) for readiness checks and configuration options.
@@ -103,7 +103,8 @@ The pull-request and push workflow runs:
 - `cargo doc --locked --no-deps --all-features` with rustdoc warnings denied
 - Check and test on the declared MSRV, Rust 1.85.0
 - `cargo semver-checks check-release`
-- `cargo publish --dry-run --locked`
+- `python3 -m unittest discover -s scripts -p 'test_*.py'`
+- `cargo publish --dry-run --locked --all-features`, then `cargo package --locked --no-verify` with archive size and contents checked
 
 The real-Loki tests and fuzzing are not part of that pull-request workflow.
 
@@ -117,6 +118,10 @@ Complete this checklist for the exact commit proposed for release. Attach or lin
 - [ ] All three fuzz targets have completed at least 30 seconds without a crash.
 - [ ] Benchmark results include hardware, operating system, toolchain, and lockfile hash.
 - [ ] Security review is complete and has no open release-blocking findings.
-- [ ] The package archive is below the target registry's size limit. Current crates.io blocker: the dry-run archive is 59.0 MiB compressed because it includes the bundled MMDB database; see [the geolocation packaging note](geolocation.md#bundled-database-and-attribution) and [Cargo's publishing guidance](https://doc.rust-lang.org/cargo/reference/publishing.html).
-- [ ] `cargo publish --dry-run --locked` succeeds and the packaged file list/size is reviewed.
+- [ ] The package archive is below the target registry limit and excludes production MMDB files. Only the licensed synthetic test fixture is included.
+- [ ] `cargo publish --dry-run --locked --all-features` and `cargo package --locked --no-verify` succeed; review the packaged file list and size.
 - [ ] Version, changelog, README status, and release notes agree.
+
+## Database installer checks
+
+Run `python3 -m unittest discover -s scripts -p 'test_*.py'`. These offline checks cover checksum failures, corrupted archives, size limits, invalid input, and preservation of the previous file on failure.

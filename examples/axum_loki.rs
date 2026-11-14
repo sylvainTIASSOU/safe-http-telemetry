@@ -10,7 +10,6 @@ use safe_http_telemetry::{
     axum_adapter::axum_telemetry_layer,
     config::{CaptureLimits, RedactionConfig, ServiceConfig},
     core::telemetry::InternalTelemetry,
-    geolocation::GeolocationConfig,
     loki::{config::LokiConfig, exporter::LokiExporter},
     policy::{CaptureProfile, RoutePattern, RoutePolicy, RoutePolicySet},
     redaction::Redactor,
@@ -108,7 +107,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // --- Middleware configuration with geolocation ---
     let middleware_config = MiddlewareConfig {
-        geolocation: Some(GeolocationConfig::bundled()),
+        #[cfg(feature = "geolocation")]
+        geolocation: env::var_os("SAFE_HTTP_MMDB_PATH")
+            .map(safe_http_telemetry::geolocation::GeolocationConfig::new),
         ..MiddlewareConfig::default()
     };
 

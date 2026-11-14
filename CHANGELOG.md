@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Geolocation now requires an explicit external MMDB path. Removed `bundled()`, `Default`, and `BUNDLED_DATABASE_RELEASE` from the unpublished candidate API.
+- Production databases are excluded from the crate; offline tests use a licensed synthetic fixture.
+- Added a pinned DB-IP download script with checksum verification, size limits, and atomic replacement.
+
+
 ## [0.1.0-rc.1] - 2026-11-14
 
 ### Added
