@@ -3,6 +3,7 @@
 //! These counters contain no request values, credentials, identifiers or
 //! geographic information. Cloned handles share the same atomic counters.
 
+use super::event::{BodyCaptureStatus, CaptureInfo};
 use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc,
@@ -98,6 +99,51 @@ impl InternalTelemetry {
 
     pub fn record_parse_error(&self) {
         self.counters.parse_errors.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Records terminal body-capture outcomes without retaining HTTP data.
+    ///
+    /// Body truncation counters are distinct from `truncated_values`, which
+    /// also includes metadata and structural redaction truncation.
+    pub fn record_body_capture_outcomes(&self, capture: &CaptureInfo) {
+        match capture.request_body_status {
+            Some(BodyCaptureStatus::Captured) => {
+                self.counters
+                    .captured_request_bodies
+                    .fetch_add(1, Ordering::Relaxed);
+            }
+            Some(BodyCaptureStatus::Unsupported) => {
+                self.counters
+                    .unsupported_bodies
+                    .fetch_add(1, Ordering::Relaxed);
+            }
+            _ => {}
+        }
+
+        match capture.response_body_status {
+            Some(BodyCaptureStatus::Captured) => {
+                self.counters
+                    .captured_response_bodies
+                    .fetch_add(1, Ordering::Relaxed);
+            }
+            Some(BodyCaptureStatus::Unsupported) => {
+                self.counters
+                    .unsupported_bodies
+                    .fetch_add(1, Ordering::Relaxed);
+            }
+            _ => {}
+        }
+
+        if capture.request_body_truncated {
+            self.counters
+                .truncated_request_bodies
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        if capture.response_body_truncated {
+            self.counters
+                .truncated_response_bodies
+                .fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     pub fn record_geolocation_cache_hit(&self) {
@@ -243,6 +289,23 @@ impl InternalTelemetry {
             truncated_values: self.counters.truncated_values.load(Ordering::Relaxed),
             omitted_bodies: self.counters.omitted_bodies.load(Ordering::Relaxed),
             parse_errors: self.counters.parse_errors.load(Ordering::Relaxed),
+            captured_request_bodies: self
+                .counters
+                .captured_request_bodies
+                .load(Ordering::Relaxed),
+            captured_response_bodies: self
+                .counters
+                .captured_response_bodies
+                .load(Ordering::Relaxed),
+            unsupported_bodies: self.counters.unsupported_bodies.load(Ordering::Relaxed),
+            truncated_request_bodies: self
+                .counters
+                .truncated_request_bodies
+                .load(Ordering::Relaxed),
+            truncated_response_bodies: self
+                .counters
+                .truncated_response_bodies
+                .load(Ordering::Relaxed),
             geolocation_cache_hits: self.counters.geolocation_cache_hits.load(Ordering::Relaxed),
             geolocation_cache_misses: self
                 .counters
@@ -291,6 +354,11 @@ struct Counters {
     truncated_values: AtomicU64,
     omitted_bodies: AtomicU64,
     parse_errors: AtomicU64,
+    captured_request_bodies: AtomicU64,
+    captured_response_bodies: AtomicU64,
+    unsupported_bodies: AtomicU64,
+    truncated_request_bodies: AtomicU64,
+    truncated_response_bodies: AtomicU64,
     geolocation_cache_hits: AtomicU64,
     geolocation_cache_misses: AtomicU64,
     geolocation_errors: AtomicU64,
@@ -325,6 +393,11 @@ pub struct InternalTelemetrySnapshot {
     pub truncated_values: u64,
     pub omitted_bodies: u64,
     pub parse_errors: u64,
+    pub captured_request_bodies: u64,
+    pub captured_response_bodies: u64,
+    pub unsupported_bodies: u64,
+    pub truncated_request_bodies: u64,
+    pub truncated_response_bodies: u64,
     pub geolocation_cache_hits: u64,
     pub geolocation_cache_misses: u64,
     pub geolocation_errors: u64,

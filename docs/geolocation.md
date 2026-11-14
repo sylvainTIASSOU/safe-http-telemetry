@@ -84,3 +84,21 @@ lockfile changed.
 A database update changes the crate contents. Every application must therefore
 be recompiled and redeployed to receive it; already running binaries retain the
 release with which they were built.
+
+mkdir -p data
+
+curl --fail --location \
+  "https://download.db-ip.com/free/dbip-city-lite-2026-11.mmdb.gz" \
+  --output /tmp/dbip-city-lite-2026-11.mmdb.gz
+
+gzip --test /tmp/dbip-city-lite-2026-11.mmdb.gz
+
+gzip -dc /tmp/dbip-city-lite-2026-11.mmdb.gz \
+  > data/dbip-city-lite-2026-11.mmdb
+
+printf '%s  %s\n' \
+  'a6f14e8da5565c713cdda9f1959a904b2eb88337' \
+  'data/dbip-city-lite-2026-11.mmdb' \
+  | sha1sum -c -
+
+test "$(stat -c %s data/dbip-city-lite-2026-11.mmdb)" = "126873350"

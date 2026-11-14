@@ -60,6 +60,7 @@ fn assert_no_fictional_secret(event: &HttpEvent) {
 async fn fragmented_json_is_redacted_and_forwarded_without_change() {
     let queue = queue();
     let receiver = queue.receiver();
+    let telemetry = queue.telemetry();
     let policies = RoutePolicySet::new(CaptureProfile::Detailed);
 
     let app = Router::new()
@@ -130,12 +131,19 @@ async fn fragmented_json_is_redacted_and_forwarded_without_change() {
     assert!(!event.capture.request_body_truncated);
 
     assert_no_fictional_secret(&event);
+    let snapshot = telemetry.snapshot();
+    assert_eq!(snapshot.captured_request_bodies, 1);
+    assert_eq!(snapshot.captured_response_bodies, 1);
+    assert_eq!(snapshot.unsupported_bodies, 0);
+    assert_eq!(snapshot.truncated_request_bodies, 0);
+    assert_eq!(snapshot.truncated_response_bodies, 0);
 }
 
 #[tokio::test]
 async fn capture_stops_at_the_limit_but_the_handler_receives_every_byte() {
     let queue = queue();
     let receiver = queue.receiver();
+    let telemetry = queue.telemetry();
     let policies = RoutePolicySet::new(CaptureProfile::Detailed);
     let mut config = MiddlewareConfig::default();
     config.limits.max_request_body_bytes = 24;
@@ -181,6 +189,12 @@ async fn capture_stops_at_the_limit_but_the_handler_receives_every_byte() {
     assert!(event.request.body.is_none());
 
     assert_no_fictional_secret(&event);
+
+    let snapshot = telemetry.snapshot();
+    assert_eq!(snapshot.captured_request_bodies, 0);
+    assert_eq!(snapshot.truncated_request_bodies, 1);
+    assert_eq!(snapshot.captured_response_bodies, 1);
+    assert_eq!(snapshot.truncated_response_bodies, 0);
 }
 
 #[tokio::test]
