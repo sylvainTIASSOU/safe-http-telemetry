@@ -84,7 +84,7 @@ tower = { version = "=0.5.2", features = ["util"] }
 bytes = "=1.12.1"
 futures-util = "=0.3.34"
 http-body-util = "=0.1.5"
-
+criterion = { version = "0.5", features = ["async_tokio"] }
 
 [[example]]
 name = "minimal_axum"
@@ -100,3 +100,9 @@ required-features = ["axum", "loki", "tracing", "opentelemetry"]
 name = "loki_http_e2e"
 path = "tests/loki_http_e2e.rs"
 required-features = ["axum", "loki"]
+
+[[bench]]
+name = "middleware_overhead"
+path = "benches/middleware_overhead.rs"
+required-features = ["axum", "loki", "tracing", "opentelemetry"]
+harness = false
