@@ -192,6 +192,29 @@ impl InternalTelemetry {
             .fetch_add(1, Ordering::Relaxed);
     }
 
+    /// Records that an export operation has started.
+    /// Increments the in-flight batch gauge.
+    pub fn record_export_started(&self) {
+        self.counters
+            .in_flight_batches
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Records a successful or failed export operation with its duration.
+    /// Decrements the in-flight batch gauge accumulates duration and count.
+    pub fn record_export_completed(&self, duration: std::time::Duration) {
+        let millis = duration.as_millis() as u64;
+        self.counters
+            .export_duration_ms_total
+            .fetch_add(millis, Ordering::Relaxed);
+        self.counters
+            .export_operations
+            .fetch_add(1, Ordering::Relaxed);
+        self.counters
+            .in_flight_batches
+            .fetch_sub(1, Ordering::Relaxed);
+    }
+
     pub fn record_event_processing_failure(&self) {
         self.record_event_dropped();
         self.complete_pending_events(1);
@@ -341,6 +364,12 @@ impl InternalTelemetry {
             timed_out_requests: self.counters.timed_out_requests.load(Ordering::Relaxed),
             active_requests: self.counters.active_requests.load(Ordering::Relaxed),
             cancelled_requests: self.counters.cancelled_requests.load(Ordering::Relaxed),
+            export_duration_ms_total: self
+                .counters
+                .export_duration_ms_total
+                .load(Ordering::Relaxed),
+            export_operations: self.counters.export_operations.load(Ordering::Relaxed),
+            in_flight_batches: self.counters.in_flight_batches.load(Ordering::Relaxed),
         }
     }
 }
@@ -381,6 +410,9 @@ struct Counters {
     timed_out_requests: AtomicU64,
     active_requests: AtomicU64,
     cancelled_requests: AtomicU64,
+    export_duration_ms_total: AtomicU64,
+    export_operations: AtomicU64,
+    in_flight_batches: AtomicU64,
 }
 
 /// An immutable snapshot suitable for diagnostics or metrics export.
@@ -420,4 +452,7 @@ pub struct InternalTelemetrySnapshot {
     pub timed_out_requests: u64,
     pub active_requests: u64,
     pub cancelled_requests: u64,
+    pub export_duration_ms_total: u64,
+    pub export_operations: u64,
+    pub in_flight_batches: u64,
 }

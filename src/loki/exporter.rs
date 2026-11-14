@@ -322,7 +322,14 @@ async fn flush_batch(
         return;
     };
 
+    telemetry.record_export_started();
+    let start = Instant::now();
+
     let result = push_with_retries(client, batch.payload(), retry, telemetry).await;
+
+    let elapsed = start.elapsed();
+    telemetry.record_export_completed(elapsed);
+
     match result {
         Ok(()) => telemetry.record_exported_batch(batch.event_count()),
         Err(_) => telemetry.record_failed_batch(batch.event_count()),
