@@ -85,6 +85,7 @@ bytes = "=1.12.1"
 futures-util = "=0.3.34"
 http-body-util = "=0.1.5"
 criterion = { version = "0.5", features = ["async_tokio"] }
+proptest = "1"
 
 [[example]]
 name = "minimal_axum"
