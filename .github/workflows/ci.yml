@@ -38,3 +38,14 @@ jobs:
 
       - run: cargo check --locked --all-targets --all-features
       - run: cargo test --locked --all-targets --all-features
+
+
+  semver-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-semver-checks
+        run: cargo install cargo-semver-checks --locked
+      - name: Run semver-checks
+        run: cargo semver-checks check-release

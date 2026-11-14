@@ -48,15 +48,18 @@ The project follows the standard Cargo package layout. There is no `src/main.rs`
 
 ## Cargo features
 
-These features do not currently expose a stable API.
+The following features are considered **stable** and follow the SemVer policy described in `docs/semver.md`:
 
-- `axum`
-- `tower`
-- `tracing`
-- `opentelemetry`
-- `body-capture`
-- `geolocation`
-- `loki`
+* `axum` — Axum middleware and `MatchedPath` integration.
+* `tower` — Generic Tower middleware and HTTP lifecycle.
+* `tracing` — `tracing` event capture and correlation.
+* `opentelemetry` — W3C Trace Context propagation and span correlation.
+* `body-capture` — Bounded request and response body capture.
+* `geolocation` — Local MMDB geolocation with bounded cache.
+* `loki` — Asynchronous Loki exporter with bounded queue.
+
+> **Note:** Adding a new feature is a minor change. Removing or renaming a feature is a major change.
+
 
 These features do not currently expose a stable API.
 
