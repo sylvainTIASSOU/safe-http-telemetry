@@ -403,3 +403,215 @@ fn unix_timestamp_ns() -> Result<u128, io::Error> {
 fn static_error(message: &'static str) -> io::Error {
     io::Error::other(message)
 }
+
+#[tokio::test]
+#[ignore = "requires the real Loki service from examples/loki/docker-compose.yaml"]
+async fn detailed_http_event_redacts_secrets_and_exports_correctly() {
+    use reqwest::Client;
+    use serde_json::json;
+    use std::time::Duration;
+    use tokio::time::sleep;
+
+    // 1. Setup de l'application Axum avec profil Detailed
+    let (_queue, exporter, app) = setup_detailed_test_app().await;
+
+    // Démarrage du serveur sur un port aléatoire
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    // 2. Envoi de la requête avec des secrets fictifs
+    let client = Client::new();
+    let secret_password = "super-secret-password-123";
+    let secret_token = "bearer-secret-token-456";
+
+    let payload = json!({
+        "name": "alice",
+        "password": secret_password,
+        "nested": { "token": secret_token }
+    });
+
+    let response = client
+        .post(format!("http://{}/e2e/detailed", addr))
+        .header("authorization", format!("Bearer {}", secret_token))
+        .json(&payload)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200);
+
+    // La réponse du handler contient aussi un secret fictif
+    let response_body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(response_body["status"], "ok");
+
+    // 3. Attendre que le batch soit exporté vers Loki (flush_interval est de 250ms)
+    sleep(Duration::from_millis(1000)).await;
+
+    // 4. Interroger Loki pour récupérer l'événement
+    let loki_url = std::env::var("LOKI_PUSH_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:3100/loki/api/v1/push".to_owned())
+        .replace("/push", "/query_range");
+
+    let query = r#"{service="e2e-detailed-test"}"#.to_string();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+
+    let loki_response = client
+        .get(&loki_url)
+        .query(&[
+            ("query", query.as_str()),
+            ("start", &format!("{}", now - 60_000_000_000)), // il y a 1 minute
+            ("end", &format!("{}", now)),
+            ("limit", "10"),
+        ])
+        .send()
+        .await
+        .unwrap();
+
+    let loki_json: serde_json::Value = loki_response.json().await.unwrap();
+
+    // 5. Vérifications
+    let streams = loki_json["data"]["result"]
+        .as_array()
+        .expect("No streams returned");
+    assert!(!streams.is_empty(), "Loki did not receive any event");
+
+    let first_stream = &streams[0];
+
+    // A. Vérifier que les labels ne contiennent PAS de secrets (faible cardinalité)
+    let labels = first_stream["stream"].as_object().unwrap();
+    assert!(labels.contains_key("service"));
+    assert_eq!(labels["service"], "e2e-detailed-test");
+    assert_eq!(labels["event_type"], "http");
+
+    // B. Vérifier le contenu de la ligne de log
+    let values = first_stream["values"].as_array().unwrap();
+    // values[0][1] correspond à la ligne de log JSON
+    let log_line = values[0][1].as_str().expect("Log line is not a string");
+
+    // Le secret ne doit apparaître NULLE PART
+    assert!(
+        !log_line.contains(secret_password),
+        "Password leaked into Loki!"
+    );
+    assert!(!log_line.contains(secret_token), "Token leaked into Loki!");
+
+    // Le secret de la réponse ne doit pas fuiter non plus
+    let secret_in_response = "secret-in-response-789";
+    assert!(
+        !log_line.contains(secret_in_response),
+        "Response secret leaked into Loki!"
+    );
+
+    // Les valeurs attendues doivent être là
+    assert!(log_line.contains("[REDACTED]"), "Redaction marker missing");
+    assert!(log_line.contains("alice"), "Safe data missing");
+
+    // C. Vérifier les métadonnées structurées
+    let metadata = first_stream
+        .get("metadata")
+        .unwrap_or(&serde_json::Value::Null);
+    let metadata_str = metadata.to_string();
+    assert!(!metadata_str.contains(secret_password));
+    assert!(!metadata_str.contains(secret_token));
+
+    // Arrêt propre
+    exporter.shutdown().await;
+}
+
+// --- Helpers pour le test détaillé ---
+
+async fn mock_detailed_handler(
+    axum::Json(_payload): axum::Json<serde_json::Value>,
+) -> axum::Json<serde_json::Value> {
+    // Ce handler renvoie un secret qui DOIT être masqué dans le log de réponse
+    axum::Json(serde_json::json!({
+        "status": "ok",
+        "access_token": "secret-in-response-789"
+    }))
+}
+
+async fn setup_detailed_test_app() -> (
+    safe_http_telemetry::runtime::queue::BoundedEventQueue,
+    safe_http_telemetry::loki::exporter::LokiExporterHandle,
+    axum::Router,
+) {
+    use axum::routing::post;
+    use safe_http_telemetry::{
+        axum_adapter::axum_telemetry_layer,
+        config::{CaptureLimits, RedactionConfig, ServiceConfig},
+        core::telemetry::InternalTelemetry,
+        loki::{config::LokiConfig, exporter::LokiExporter},
+        policy::{CaptureProfile, RoutePattern, RoutePolicy, RoutePolicySet},
+        redaction::Redactor,
+        runtime::queue::{BoundedEventQueue, QueueConfig},
+        tower_integration::config::MiddlewareConfig,
+    };
+    use std::time::Duration;
+
+    // 1. File d'attente
+    let queue = BoundedEventQueue::new(QueueConfig::new(1_024), InternalTelemetry::new())
+        .expect("Failed to create queue");
+
+    // 2. Redactor (nécessaire pour instancier le middleware, même si le test se concentre sur l'export)
+    let _redactor = Redactor::new(
+        &RedactionConfig::default(),
+        &CaptureLimits::default(),
+        queue.telemetry(),
+    )
+    .expect("Failed to create redactor");
+
+    // 3. Configuration du service
+    let service_config = ServiceConfig {
+        name: "e2e-detailed-test".to_owned(),
+        environment: "test".to_owned(),
+        version: "0.1.0".to_owned(),
+        region: None,
+    };
+
+    // 4. Configuration Loki (flush très rapide pour le test)
+    let push_url = std::env::var("LOKI_PUSH_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:3100/loki/api/v1/push".to_owned());
+
+    let mut loki_config = LokiConfig::new(push_url).expect("Invalid Loki config");
+    loki_config.batch.max_events = 10;
+    loki_config.batch.flush_interval = Duration::from_millis(100); // Flush rapide
+    loki_config.request_timeout = Duration::from_secs(2);
+    loki_config.retry.max_retries = 1;
+    loki_config.shutdown.drain = true;
+    loki_config.shutdown.deadline = Duration::from_secs(2);
+
+    // 5. Démarrage de l'exporteur
+    let exporter = LokiExporter::new(loki_config, service_config, queue.clone(), 1)
+        .expect("Failed to start exporter")
+        .start();
+
+    // 6. Politiques de capture (Detailed pour notre route de test)
+    let mut policies = RoutePolicySet::new(CaptureProfile::Minimal);
+    policies
+        .add_policy(RoutePolicy::new(
+            RoutePattern::exact("/e2e/detailed"),
+            CaptureProfile::Detailed,
+        ))
+        .expect("Failed to add policy");
+
+    // 7. Middleware Config (sans géolocalisation pour ce test spécifique)
+    let middleware_config = MiddlewareConfig::default();
+
+    // 8. Couche de télémétrie
+    let telemetry_layer = axum_telemetry_layer(queue.clone(), policies, middleware_config)
+        .expect("Failed to create telemetry layer");
+
+    // 9. Application Axum
+    let app = axum::Router::new()
+        .route("/e2e/detailed", post(mock_detailed_handler))
+        .layer(telemetry_layer);
+
+    (queue, exporter, app)
+}

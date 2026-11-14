@@ -4,6 +4,8 @@ use axum::{
     routing::{get, post},
     Form, Json, Router,
 };
+use opentelemetry::trace::TracerProvider;
+use opentelemetry_sdk::trace::SdkTracerProvider;
 use safe_http_telemetry::{
     axum_adapter::axum_telemetry_layer,
     config::{CaptureLimits, RedactionConfig, ServiceConfig},
@@ -16,8 +18,6 @@ use safe_http_telemetry::{
     tower_integration::config::MiddlewareConfig,
     tracing_integration::business::{BusinessLogConfig, BusinessLogLayer},
 };
-use opentelemetry::trace::TracerProvider;
-use opentelemetry_sdk::trace::SdkTracerProvider;
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::prelude::*;
 
@@ -155,12 +155,19 @@ async fn create_item(Json(payload): Json<ItemPayload>) -> Json<ItemPayload> {
 }
 
 async fn create_form(Form(payload): Form<FormPayload>) -> &'static str {
-    tracing::info!(username = %payload.username, "Form submitted via detailed profile");
+    tracing::info!(
+        username = %payload.username,
+        has_password = !payload.password.is_empty(),
+        "Form submitted via detailed profile"
+    );
     "Form received\n"
 }
 
 async fn create_text(body: String) -> &'static str {
-    tracing::info!(body_len = body.len(), "Text body received via detailed profile");
+    tracing::info!(
+        body_len = body.len(),
+        "Text body received via detailed profile"
+    );
     "Text received\n"
 }
 
