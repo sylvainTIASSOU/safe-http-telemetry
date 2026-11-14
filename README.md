@@ -2,7 +2,7 @@
 
 Bounded HTTP telemetry for Rust services using Axum or Tower, with optional `tracing` business events, OpenTelemetry correlation, Grafana Loki export, and local IP geolocation.
 
-> **Release status:** `0.1.0-rc.1` is being prepared for publication. The package is not yet published; use this repository to try the examples. The minimum supported Rust version is **1.85.0**.
+> **Release status:** `0.1.0` is being prepared for its first publication. The package is not yet published; use this repository to try the examples. The minimum supported Rust version is **1.85.0**.
 
 ## What it does
 
@@ -36,11 +36,11 @@ For a complete local Loki walkthrough, including a query that finds both HTTP an
 
 ## Add it to an application
 
-After `0.1.0-rc.1` is published, select only the features your application uses:
+After `0.1.0` is published, select only the features your application uses:
 
 ```toml
 [dependencies]
-safe-http-telemetry = { version = "0.1.0-rc.1", features = ["axum", "loki", "tracing", "opentelemetry", "body-capture"] }
+safe-http-telemetry = { version = "0.1.0", features = ["axum", "loki", "tracing", "opentelemetry", "body-capture"] }
 axum = "0.8"
 tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal"] }
 tracing = "0.1"

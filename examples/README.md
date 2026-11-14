@@ -116,7 +116,7 @@ Use the [complete Rust source](axum_loki.rs) as the wiring reference. Its HTTP h
 
 ```toml
 [dependencies]
-safe-http-telemetry = { version = "0.1.0-rc.1", features = ["axum", "loki", "tracing", "opentelemetry", "body-capture"] }
+safe-http-telemetry = { version = "0.1.0", features = ["axum", "loki", "tracing", "opentelemetry", "body-capture"] }
 axum = "0.8"
 tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal"] }
 serde = { version = "1", features = ["derive"] }

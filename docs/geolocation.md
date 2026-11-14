@@ -23,7 +23,7 @@ Retain the attribution **IP Geolocation by [DB-IP](https://db-ip.com)** and the 
 
 ```toml
 [dependencies]
-safe-http-telemetry = { version = "0.1.0-rc.1", features = ["axum", "geolocation"] }
+safe-http-telemetry = { version = "0.1.0", features = ["axum", "geolocation"] }
 ```
 
 ```rust

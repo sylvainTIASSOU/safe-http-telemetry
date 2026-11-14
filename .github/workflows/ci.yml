@@ -45,11 +45,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
       - name: Install cargo-semver-checks
         run: cargo install cargo-semver-checks --locked
-      - name: Run semver-checks
-        run: cargo semver-checks check-release
+      - name: Check API against the prior Git revision
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BASE_SHA: ${{ github.event.before }}
+        run: |
+          baseline="$PR_BASE_SHA"
+          if [ -z "$baseline" ]; then
+            baseline="$PUSH_BASE_SHA"
+          fi
+          if [ -z "$baseline" ] || [ "$baseline" = "0000000000000000000000000000000000000000" ]; then
+            baseline=origin/master
+          fi
+          cargo semver-checks --baseline-rev "$baseline"
 
   publish-dry-run:
     runs-on: ubuntu-latest

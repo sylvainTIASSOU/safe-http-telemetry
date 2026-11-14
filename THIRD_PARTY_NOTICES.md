@@ -1,10 +1,10 @@
 # Third-Party Notices
 
-## Source code
+## Crate and dependency licenses
 
-The project source code is licensed under the MIT License.
+The project source code is licensed under the MIT License; see [`LICENSE-MIT`](LICENSE-MIT). The complete versioned SPDX license inventory for every registry dependency in `Cargo.lock` (including optional, development, build, and target-specific dependencies) is in [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md).
 
-Dependencies retain their respective licenses. A complete license inventory must be produced before publication.
+The inventory records the license expressions declared by the locked package versions. When redistributing dependency source or binaries, preserve any copyright and license notices required by those dependencies. Update and review the inventory whenever `Cargo.lock` changes.
 
 ## DB-IP Lite
 

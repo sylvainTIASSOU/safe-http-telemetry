@@ -9,12 +9,12 @@ This guide describes how to migrate between versions of `safe-http-telemetry` an
 | Crate version | Schema version | Notes |
 |---|---|---|
 | `0.1.x-dev` | `1.0` | Development releases. API not stable. |
-| `0.1.0-rc.1` | `1.0` | First release candidate. API frozen for the 0.1 line. |
+| `0.1.0` | `1.0` | First stable release. API follows the 0.1 compatibility policy. |
 
 ## 2. Migrating from Development to `0.1.0`
 
 ### Feature flags
-The `0.1.0-rc.1` candidate exposes `axum`, `tower`, `tracing`, `opentelemetry`, `body-capture`, `geolocation`, and `loki`. Enable only the features you use; the candidate API remains under final review.
+The `0.1.0` release exposes `axum`, `tower`, `tracing`, `opentelemetry`, `body-capture`, `geolocation`, and `loki`. Enable only the features you use.
 
 ### Configuration types
 `CaptureLimits` is now validated at startup. If your previous configuration had a zero limit or an inconsistent `max_event_bytes > max_loki_batch_bytes`, the crate will refuse to start. Adjust the limits before upgrading.
@@ -23,7 +23,7 @@ The `0.1.0-rc.1` candidate exposes `axum`, `tower`, `tracing`, `opentelemetry`, 
 The default sensitive-field list has been extended. If you were relying on a field being **not** redacted (e.g., a custom `token` field that you considered safe), explicitly remove it from `RedactionConfig::sensitive_fields` after a risk assessment.
 
 ### Geolocation
-The release candidate now requires an external MMDB path. This is a breaking change from the earlier unpublished embedded-database API: replace `GeolocationConfig::bundled()` or `default()` with `GeolocationConfig::new(path)`. The `database_path` field is now a `PathBuf`, not an `Option<PathBuf>`, and `BUNDLED_DATABASE_RELEASE` has been removed. Keep `MiddlewareConfig::geolocation` set to `None` to disable the feature. Deploy the database separately and restart to load updates; see [the geolocation guide](geolocation.md). Missing files fail enabled layer construction without exposing their path in diagnostics.
+The `0.1.0` release requires an external MMDB path. This is a breaking change from the earlier unpublished embedded-database API: replace `GeolocationConfig::bundled()` or `default()` with `GeolocationConfig::new(path)`. The `database_path` field is now a `PathBuf`, not an `Option<PathBuf>`, and `BUNDLED_DATABASE_RELEASE` has been removed. Keep `MiddlewareConfig::geolocation` set to `None` to disable the feature. Deploy the database separately and restart to load updates; see [the geolocation guide](geolocation.md). Missing files fail enabled layer construction without exposing their path in diagnostics.
 
 ### Loki exporter
 `LokiConfig::new(url)` rejects URLs with embedded credentials. Move credentials to the bearer-token or basic-auth fields.

@@ -2,7 +2,7 @@
 
 A practical guide to the `safe-http-telemetry` Rust crate and its release progress.
 
-> **Status (2026-11-14):** release candidate `0.1.0-rc.1` is being prepared. It has not been published to crates.io. The supported MSRV is Rust 1.85.
+> **Status (2026-11-14):** the first stable release, `0.1.0`, is being prepared. It has not been published to crates.io. The supported MSRV is Rust 1.85.
 
 ## Start here
 

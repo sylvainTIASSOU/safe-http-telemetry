@@ -14,27 +14,27 @@ cargo bench --locked --all-features
 
 Criterion writes estimates and raw samples under `target/criterion/`. Record the run date, commit, Rust version, operating system, CPU, and lockfile hash alongside any results used for a release decision. Do not compare numbers collected with different environments as if they were directly equivalent.
 
-### Historical smoke-run results (before external database migration)
+### Local smoke run (2026-11-14)
 
-An exploratory run was completed on 2026-11-14 with Rust 1.99.1 using:
+A short exploratory run was completed against the current source with Rust 1.99.1 using:
 
 ```sh
-cargo bench --locked --all-features --bench middleware_overhead -- --sample-size 20
+cargo bench --locked --all-features --bench middleware_overhead --offline -- --sample-size 10
 ```
 
-These measurements predate the external-MMDB migration and must be repeated before release. The geolocation case now opens the small test fixture; it still measures the no-client-IP path.
+The geolocation case opens the small synthetic test fixture but supplies no client IP, so it measures the no-IP path and does not include a database lookup or cache hit.
 
-Environment: Fedora Linux x86_64, Intel Core i7-8565U CPU @ 1.80 GHz, eight logical CPUs. `Cargo.lock` SHA-256: `93fae80d240c36b23d86e2771526ec51c127f8a31d05d930989036c8a90420dd`.
+Environment: Fedora Linux 7.3.3 x86_64, Intel Core i7-8565U CPU @ 1.80 GHz, eight logical CPUs, CPU frequency scaling enabled. Toolchain: `rustc 1.99.1`. `Cargo.lock` SHA-256: `47db3528dcbe34d1f6915aad038c7fb6de4139aaac3a1585ed9e03f3bbbb0a1f`.
 
 | Profile | Criterion estimate | Criterion interval | Notes |
 |---|---:|---:|---|
-| Baseline | 3.2674 µs | 2.6911–3.9972 µs | No telemetry middleware |
-| Minimal | 47.277 µs | 40.196–58.710 µs | Request lifecycle event |
-| Standard | 67.277 µs | 63.076–72.897 µs | Query/header capture and redaction |
-| Detailed | 65.461 µs | 60.891–72.621 µs | Bounded body capture and redaction |
-| Standard + geolocation | 55.860 µs | 48.495–61.743 µs | No client IP is supplied, so this measures the no-IP path, not a lookup or cache hit |
+| Baseline | 2.237 µs | 2.089–2.527 µs | No telemetry middleware |
+| Minimal | 24.228 µs | 22.258–27.318 µs | Request lifecycle event |
+| Standard | 56.646 µs | 52.529–61.810 µs | Query/header capture and redaction |
+| Detailed | 60.225 µs | 55.206–67.916 µs | Bounded body capture and redaction |
+| Standard + geolocation | 23.535 µs | 22.192–25.666 µs | Fixture loaded; no client IP supplied |
 
-This is a short local snapshot, not a release performance guarantee. Criterion reported a regression against its locally retained comparison data. The benchmark ran with 20 samples per case on a frequency-scaled laptop CPU, so host load and power state may explain some or all of that difference. Repeat it against a clean baseline on stable, documented hardware before using it to support production claims. The earlier undocumented figures in this file have been removed.
+This is a short local snapshot, not a release performance guarantee. Each case used 10 samples and Criterion's default 3-second warm-up and measurement window. The machine had frequency scaling enabled; Criterion also reported outliers and changes relative to locally retained comparison data. The cross-profile figures are sensitive to host load and power state. Repeat the benchmark on stable, documented hardware with a clean Criterion baseline before using it to support production claims.
 
 Do not infer throughput limits or production suitability from these isolated per-request measurements alone.
 
