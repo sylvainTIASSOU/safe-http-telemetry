@@ -1,6 +1,6 @@
 # Documentation
 
-This directory contains the project architecture, phase reports and architecture decision records.
+This directory contains the project guides, architecture notes, and architecture decision records.
 
 The public event schemas are stored in `schemas/`.
 

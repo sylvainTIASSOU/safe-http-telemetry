@@ -13,8 +13,8 @@ fn arb_num_events() -> impl Strategy<Value = usize> {
 }
 
 proptest! {
-    /// Invariant: la taille de la file ne dépasse jamais sa capacité,
-    /// et le nombre d'événements acceptés + rejetés est égal au nombre d'essais.
+    /// Invariant: queue occupancy never exceeds capacity, and accepted plus
+    /// rejected events equals the total number of attempts.
     #[test]
     fn queue_never_exceeds_capacity(
         capacity in arb_capacity(),
@@ -30,9 +30,7 @@ proptest! {
         let mut rejected = 0usize;
 
         for _ in 0..num_events {
-            // ⚠️ IMPORTANT : Remplace cette ligne par la même création d'événement
-            // que celle utilisée dans tests/runtime_queue.rs
-            // Par exemple : let event = TelemetryEvent::dummy();
+            // Use the test-event constructor below to create a TelemetryEvent.
             let event = create_test_event();
 
             match queue.try_push(event) {
@@ -54,8 +52,8 @@ prop_assert_eq!(rejected, snap.rejected_events as usize);
     }
 }
 
-// ⚠️ IMPORTANT : Regarde dans tests/runtime_queue.rs comment tu crées un événement factice.
-// Copie cette logique ici pour que le test puisse générer un TelemetryEvent.
+// IMPORTANT: See tests/runtime_queue.rs for the test-event construction pattern.
+// Reuse that pattern here so the test can generate a TelemetryEvent.
 fn create_test_event() -> safe_http_telemetry::core::event::TelemetryEvent {
     use safe_http_telemetry::core::event::{
         CaptureInfo, HttpEvent, RequestInfo, ResponseInfo, TimingInfo,

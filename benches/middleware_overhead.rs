@@ -108,7 +108,7 @@ fn benchmark_middleware(c: &mut Criterion) {
         let app = create_app_with_profile(CaptureProfile::Standard);
         b.to_async(&rt).iter(|| {
             let app = app.clone();
-            // On utilise la requête détaillée mais le profil Standard ignorera le body
+            // Use a detailed request; the Standard profile should ignore its body.
             let req = mock_detailed_request();
             async move {
                 let _ = app.oneshot(req).await.unwrap();
@@ -129,7 +129,7 @@ fn benchmark_middleware(c: &mut Criterion) {
     });
 
     // --- Benchmark 5: Standard Profile + Geolocation ---
-    group.bench_function("Standard + Geolocation (Cache Miss/Hit)", |b| {
+    group.bench_function("Standard + Geolocation (No Client IP)", |b| {
         let app = create_app_with_geolocation();
         b.to_async(&rt).iter(|| {
             let app = app.clone();

@@ -1,8 +1,8 @@
 use proptest::prelude::*;
 use safe_http_telemetry::config::CaptureLimits;
 
-// Strategy pour générer des limites plausiblement invalides.
-// On biaise vers zéro pour que proptest trouve plus vite les cas d'échec.
+// Generate plausibly invalid limits.
+// Bias toward zero so proptest reaches failing cases sooner.
 fn arb_limits() -> impl Strategy<Value = CaptureLimits> {
     (
         0usize..1024, // max_request_body_bytes
@@ -47,7 +47,7 @@ fn arb_limits() -> impl Strategy<Value = CaptureLimits> {
 }
 
 proptest! {
-    /// Invariant: si une limite est à zéro, `validate()` doit échouer.
+    /// Invariant: `validate()` must fail if any limit is zero.
     #[test]
     fn zero_limit_is_always_rejected(limits in arb_limits()) {
     let has_zero = [
@@ -71,7 +71,7 @@ proptest! {
         }
     }
 
-    /// Invariant: si `max_event_bytes > max_loki_batch_bytes`, `validate()` doit échouer.
+    /// Invariant: `validate()` must fail when `max_event_bytes > max_loki_batch_bytes`.
     #[test]
     fn event_larger_than_batch_is_rejected(
         event_bytes in 1usize..1024,

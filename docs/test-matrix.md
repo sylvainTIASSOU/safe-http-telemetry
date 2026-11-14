@@ -1,132 +1,122 @@
-# Test Matrix
+# Test Matrix and Release Checklist
 
-This document lists every test category in `safe-http-telemetry`, the files that contain them, and the scenarios they cover. It is the reference for the release candidate checklist.
+This document maps the project's automated checks to the relevant test files and lists validation that requires external services or maintainer review. CI is authoritative for automated results; this checklist does not claim that a check has passed unless its run is recorded.
 
-## 1. Unit Tests
+## Automated test coverage
 
-Unit tests live inside `src/` modules (`#[cfg(test)] mod tests`). They cover isolated logic without network or HTTP.
+### Unit tests
 
-| Area | File | Scenarios covered |
+Unit tests are colocated with the implementation under `src/`.
+
+| Area | Source module | Coverage |
 |---|---|---|
-| Configuration validation | `src/config/mod.rs` | Zero limits, inconsistent limits, default values |
-| Capture profiles and route policies | `src/policy/mod.rs` | Profile ordering, exact vs prefix, method specificity |
-| Redaction engine | `src/redaction/mod.rs` | Case-insensitive matching, nested objects, string limits |
-| Queue and runtime | `src/runtime/queue.rs` | Capacity, saturation, close semantics |
-| Client IP and trusted proxies | `src/tower_integration/client_ip.rs` | Forwarded parsing, untrusted peers |
-| Request body capture | `src/tower_integration/request_body.rs` | Frame forwarding, trailer preservation |
+| Configuration | `src/config/mod.rs` | Default values, zero limits, and inconsistent limits |
+| Capture policy | `src/policy/mod.rs` | Profile ordering and route matching |
+| Redaction | `src/redaction/mod.rs` | Case-insensitive matching, nested values, and bounds |
+| Runtime queue | `src/runtime/queue.rs` | Capacity, saturation, and close behavior |
+| Client IP | `src/tower_integration/client_ip.rs` | Forwarded-address parsing and trusted proxies |
+| Request body | `src/tower_integration/request_body.rs` | Frame forwarding and trailer preservation |
 
-## 2. Integration Tests (no network)
+### Integration tests
 
-These tests exercise the middleware and the exporter against mock services, without real Loki or real HTTP sockets.
+These tests use in-process services and mocks; they do not require a real Loki instance.
 
-| File | Scenarios covered |
+| Test target | Coverage |
 |---|---|
-| `tests/axum_middleware.rs` | Route normalization, stream preservation, excluded routes |
-| `tests/body_capture.rs` | JSON, form, text, binary, truncated bodies, invalid UTF-8 |
-| `tests/business_events.rs` | Business event schema, queue interleaving, correlation |
-| `tests/business_tracing.rs` | `tracing` layer, field bounds, queue saturation |
-| `tests/client_ip.rs` | Direct peer, trusted chain, forwarding headers, labels |
-| `tests/config.rs` | Validation edge cases, default configuration |
-| `tests/core.rs` | Event schema, serialization, capture counters |
-| `tests/geolocation.rs` | Bundled MMDB, cache bounds, field selection |
-| `tests/geolocation_http.rs` | Layer integration, cache sharing, minimal profile |
-| `tests/http_cancellation.rs` | Future drop, cancellation event, state release |
-| `tests/http_failures.rs` | Handler errors, timeouts, body errors |
-| `tests/http_metadata.rs` | Query and header capture, route-specific policies |
-| `tests/http_response_preservation.rs` | Ordinary body, streaming, trailers, empty body |
-| `tests/loki.rs` | URL validation, labels, structured metadata, timestamp |
-| `tests/loki_batch.rs` | Event limits, byte limits, oversized events |
-| `tests/loki_client.rs` | Retryable vs permanent errors, auth, timeouts |
-| `tests/loki_exporter.rs` | Worker count, batching, retries, oversized drop |
-| `tests/loki_shutdown.rs` | Drain, deadline, abandoned events |
-| `tests/opentelemetry_distributed.rs` | Multi-span correlation |
-| `tests/opentelemetry_middleware.rs` | W3C incoming context, span/event identity |
-| `tests/opentelemetry_propagation.rs` | Extraction and injection of W3C context |
-| `tests/policy.rs` | Profile elevation rules, route specificity |
-| `tests/project-layout.rs` | Package identity |
-| `tests/redaction.rs` | Fake secrets at every nesting level, query, headers |
-| `tests/request_body_capture.rs` | Fragmented JSON, limit truncation, cancellation |
-| `tests/response_body_capture.rs` | Fragmented JSON, limit truncation, stream errors |
-| `tests/runtime_queue.rs` | Bounded queue, saturation, cloned receivers |
-| `tests/tower_middleware.rs` | Minimal event, saturation, request ID propagation |
-| `tests/telemetry_export_metrics.rs` | Export duration, in-flight batch gauge |
-| `tests/loki_long_outage.rs` | Prolonged outage, recovery, shutdown deadline |
+| `axum_middleware` | Route normalization, streaming, and route exclusions |
+| `body_capture`, `request_body_capture`, `response_body_capture` | JSON, forms, text, binary data, truncation, invalid UTF-8, cancellation, and stream errors |
+| `business_events`, `business_tracing` | Business-event schema, tracing layer, correlation, and queue saturation |
+| `client_ip`, `geolocation`, `geolocation_http` | Direct and trusted-proxy IPs, labels, local lookup, and bounded cache |
+| `config`, `core`, `policy`, `project-layout` | Configuration, event schema, policy resolution, and package identity |
+| `http_cancellation`, `http_failures`, `http_metadata`, `http_response_preservation` | Cancellation, handler/body errors, metadata, route policies, streaming, and response preservation |
+| `loki`, `loki_batch`, `loki_client`, `loki_exporter`, `loki_shutdown` | Payload format, batching, retries, authentication, worker behavior, drain, and deadlines |
+| `opentelemetry_distributed`, `opentelemetry_middleware`, `opentelemetry_propagation` | Multi-span correlation and W3C context extraction/injection |
+| `redaction` | Fake-secret removal across supported input locations |
+| `runtime_queue`, `tower_middleware`, `telemetry_export_metrics` | Bounded queue behavior, request IDs, saturation, and exporter metrics |
+| `loki_long_outage` | Prolonged outage, recovery, drops, and shutdown behavior |
 
-## 3. End-to-End Tests (real Loki)
+### Property-based tests
 
-These tests require a running Loki instance from `examples/loki/docker-compose.yaml`. They are marked `#[ignore]` and run manually or in a dedicated CI job.
-
-| File | Scenarios covered |
+| Target | Invariant |
 |---|---|
-| `tests/loki_http_e2e.rs` | Minimal event ingestion; detailed event with secrets, geolocation, labels |
+| `prop_config` | Zero limits and event limits larger than the batch limit are rejected |
+| `prop_policy` | Empty sets use the default profile; exact policies beat prefix policies |
+| `prop_queue` | Queue occupancy stays within capacity and accepted/rejected counts match attempts |
 
-Run them with:
+Run the property tests individually:
 
-```bash
-docker compose -f examples/loki/docker-compose.yaml up -d
-cargo test --locked --all-features --test loki_http_e2e -- --ignored
-
-
-
-4. Property-Based Tests
-These tests use proptest to verify invariants over generated inputs.
-
-File	Invariant
-tests/prop_config.rs	Zero limits are always rejected; max_event_bytes > max_loki_batch_bytes is rejected
-tests/prop_policy.rs	Empty policy set returns the default profile; exact policy beats prefix policy
-tests/prop_queue.rs	Occupancy never exceeds capacity; accepted + dropped = total attempts
-Run them with:
-
-bash
+```sh
 cargo test --locked --all-features --test prop_config
 cargo test --locked --all-features --test prop_policy
 cargo test --locked --all-features --test prop_queue
-5. Fuzzing
-cargo-fuzz targets live in fuzz/. They search for panics, aborts, and memory errors in the parsers.
+```
 
-Target	Entry point	What it fuzzes
-fuzz_json_redaction	fuzz/fuzz_targets/fuzz_json_redaction.rs	JSON parsing + recursive redaction
-fuzz_headers	fuzz/fuzz_targets/fuzz_headers.rs	Header map redaction
-fuzz_query	fuzz/fuzz_targets/fuzz_query.rs	Query parameter redaction
-Run them locally with:
+### Resilience and security coverage
 
-bash
+`loki_long_outage` and `loki_shutdown` exercise exporter failure, queue saturation, recovery, drain deadlines, and abandoned-event accounting. Redaction tests use fictitious secrets and assert that values do not appear in exported output. These tests are included in the standard all-features test command.
+
+## Checks requiring external services or tools
+
+### Real-Loki end-to-end tests
+
+The tests in `tests/loki_http_e2e.rs` are ignored by default and require the Loki service in `examples/loki/docker-compose.yaml`.
+
+```sh
+docker compose -f examples/loki/docker-compose.yaml up -d
+cargo test --locked --features axum,loki,body-capture --test loki_http_e2e -- --ignored --test-threads=1
+docker compose -f examples/loki/docker-compose.yaml down --volumes
+```
+
+See [examples/README.md](../examples/README.md) for readiness checks and configuration options.
+
+### Fuzzing
+
+The `fuzz/` crate provides `fuzz_json_redaction`, `fuzz_headers`, and `fuzz_query` targets. Fuzzing requires nightly Rust and `cargo-fuzz`:
+
+```sh
 cargo +nightly fuzz build
 cargo +nightly fuzz run fuzz_json_redaction -- -max_total_time=30
 cargo +nightly fuzz run fuzz_headers -- -max_total_time=30
 cargo +nightly fuzz run fuzz_query -- -max_total_time=30
-A nightly CI job (.github/workflows/fuzz-nightly.yml) runs each target for 10 minutes.
+```
 
-6. Resilience Tests
-These tests verify behaviour under failure and saturation.
+The scheduled workflow in `.github/workflows/fuzz-nightly.yml` runs each target for ten minutes and uploads crash artifacts.
 
-File	Scenario
-tests/loki_long_outage.rs	Loki returns 503 indefinitely; queue saturates; drops are counted
-tests/loki_long_outage.rs	Loki recovers after transient failures; exported events increase
-tests/loki_shutdown.rs	Shutdown deadline expires; abandoned events are counted
-7. Benchmarks
-Benchmarks measure the overhead of each capture profile. They are not pass/fail tests, but they are part of the release checklist.
+### Benchmarks and load tests
 
-File	Profiles measured
-benches/middleware_overhead.rs	Baseline, Minimal, Standard, Detailed, Standard + Geolocation
-Run them with:
+Run Criterion benchmarks with:
 
-bash
-cargo bench --all-features
-Results are documented in docs/benchmarks.md.
+```sh
+cargo bench --locked --all-features
+```
 
-8. Release Candidate Checklist
-Before tagging v0.1.0-rc.1:
+For end-to-end throughput and latency measurements, follow the load-test procedure in [docs/benchmarks.md](benchmarks.md). Record the toolchain, hardware, workload, and lockfile hash with results.
 
-□ cargo test --locked --all-targets --all-features passes.
-□ cargo clippy --locked --all-targets --all-features -- -D warnings passes.
-□ cargo fmt --all -- --check passes.
-□ cargo doc --locked --no-deps --all-features passes.
-□ cargo +1.85.0 test --locked --all-targets --all-features -j 1 passes (MSRV).
-□ cargo test --locked --all-features --test loki_http_e2e -- --ignored passes against a real Loki.
-□ Each fuzz target ran for at least 30 seconds locally without crash.
-□ cargo publish --dry-run passes.
-□ The security review has no open findings.
-text
+## CI checks
 
----
+The pull-request and push workflow runs:
+
+- `cargo fmt --all -- --check`
+- `cargo check --locked --all-targets --all-features`
+- `cargo test --locked --all-targets --all-features`
+- `cargo clippy --locked --all-targets --all-features -- -D warnings`
+- `cargo doc --locked --no-deps --all-features` with rustdoc warnings denied
+- Check and test on the declared MSRV, Rust 1.85.0
+- `cargo semver-checks check-release`
+- `cargo publish --dry-run --locked`
+
+The real-Loki tests and fuzzing are not part of that pull-request workflow.
+
+## Release candidate checklist
+
+Complete this checklist for the exact commit proposed for release. Attach or link the CI run and record external validation results; do not mark items complete from the presence of commands or workflows alone.
+
+- [ ] Stable-toolchain CI checks pass.
+- [ ] All-target, all-feature tests pass on Rust 1.85.0.
+- [ ] Real-Loki end-to-end tests pass against the documented Loki configuration.
+- [ ] All three fuzz targets have completed at least 30 seconds without a crash.
+- [ ] Benchmark results include hardware, operating system, toolchain, and lockfile hash.
+- [ ] Security review is complete and has no open release-blocking findings.
+- [ ] The package archive is below the target registry's size limit. Current crates.io blocker: the dry-run archive is 59.0 MiB compressed because it includes the bundled MMDB database; see [the geolocation packaging note](geolocation.md#bundled-database-and-attribution) and [Cargo's publishing guidance](https://doc.rust-lang.org/cargo/reference/publishing.html).
+- [ ] `cargo publish --dry-run --locked` succeeds and the packaged file list/size is reviewed.
+- [ ] Version, changelog, README status, and release notes agree.

@@ -92,7 +92,7 @@ With local Loki running and ready, execute:
 ```sh
 cargo test \
   --locked \
-  --features axum,loki \
+  --features axum,loki,body-capture \
   --test loki_http_e2e \
   -- \
   --ignored \
@@ -105,22 +105,23 @@ An alternative Loki base URL can be selected with:
 SAFE_HTTP_TELEMETRY_LOKI_URL=http://127.0.0.1:3100 \
   cargo test \
     --locked \
-    --features axum,loki \
+    --features axum,loki,body-capture \
     --test loki_http_e2e \
     -- \
     --ignored \
     --test-threads=1
 ```
 
-The test starts its own Axum server on an ephemeral port, sends one request,
-drains the exporter and verifies exactly one matching Loki event. It checks:
+The tests start their own Axum servers on ephemeral ports, send requests,
+drain the exporter, and verify the matching Loki events. They cover both
+minimal observation and detailed body capture. The checks include:
 
 - request ID propagation;
 - method and normalized route;
 - HTTP status and finite duration;
 - the exact controlled label set;
-- empty query and header capture;
-- absent request and response bodies;
+- query and header capture according to the selected profile;
+- absent bodies in Minimal mode and captured, redacted bodies in Detailed mode;
 - absent correlation IDs when OpenTelemetry is disabled;
-- absence of the fictitious query/body secret;
+- absence of fictitious query, header, and body secrets;
 - drained shutdown with no abandoned events.

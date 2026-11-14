@@ -10,11 +10,11 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 serde_json = "1"
-# On dépend de ton crate principal pour fuzzer ses fonctions publiques.
-# Note: adapte le nom et les features selon ton Cargo.toml.
+# Depend on the main crate to fuzz its public functions.
+# Adjust the package name and features to match the main Cargo.toml when needed.
 safe-http-telemetry = { path = "..", features = ["axum", "body-capture"] }
 
-# Cibles de fuzzing
+# Fuzz targets.
 [[bin]]
 name = "fuzz_query"
 path = "fuzz_targets/fuzz_query.rs"

@@ -2,7 +2,7 @@ use proptest::prelude::*;
 use safe_http_telemetry::policy::{CaptureProfile, RoutePattern, RoutePolicy, RoutePolicySet};
 
 fn arb_path() -> impl Strategy<Value = String> {
-    // Chemins simples sans caractères interdits, pour rester dans le domaine valide.
+    // Use simple paths without forbidden characters to stay within the valid domain.
     "[a-z]{1,8}".prop_map(|s| format!("/{}", s))
 }
 
@@ -15,18 +15,17 @@ fn arb_profile() -> impl Strategy<Value = CaptureProfile> {
 }
 
 proptest! {
-    /// Invariant: `RoutePolicySet::new(default_profile)` ne contient aucune règle
-    /// tant qu'on n'en ajoute pas.
+    /// Invariant: `RoutePolicySet::new(default_profile)` contains no rules
+    /// until a policy is added.
     #[test]
     fn empty_policy_set_has_no_rules(profile in arb_profile()) {
         let set = RoutePolicySet::new(profile);
-        // resolve prend la méthode HTTP et le chemin
+        // `resolve` receives the HTTP method and path.
         let selected = set.resolve("GET", "/does-not-exist");
         prop_assert_eq!(selected.profile, profile);
     }
 
-    /// Invariant: ajouter une politique plus spécifique (exact) pour un chemin
-    /// donné prime sur une politique préfixe.
+    /// Invariant: an exact policy for a path takes precedence over a prefix policy.
       #[test]
     fn exact_policy_beats_prefix_policy(
         prefix_path in arb_path(),
@@ -48,7 +47,7 @@ proptest! {
         set.add_policy(prefix_policy).unwrap();
         set.add_policy(exact_policy).unwrap();
 
-        // Ajout de la méthode HTTP "GET"
+        // Add the HTTP method "GET".
         let selected = set.resolve("GET", &exact_path);
         prop_assert_eq!(selected.profile, profile_exact, "exact policy must win over prefix policy");
     }

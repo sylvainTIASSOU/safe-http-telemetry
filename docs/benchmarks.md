@@ -1,63 +1,63 @@
 # Performance Benchmarks
 
-This document outlines the performance overhead introduced by `safe-http-telemetry` across different capture profiles.
+This guide describes the Criterion benchmarks and the additional measurements needed before making production performance claims.
 
-## Methodology
+## Criterion benchmark
 
-Benchmarks are implemented using [Criterion.rs](https://github.com/bheisler/criterion.rs).
-To ensure accurate measurements of the middleware logic without network noise, requests are simulated using `tower::ServiceExt::oneshot`.
+The benchmark in `benches/middleware_overhead.rs` uses `tower::ServiceExt::oneshot` to measure middleware request-processing overhead without network traffic. It compares the baseline service with the Minimal, Standard, Detailed, and Standard-with-geolocation configurations.
 
-- **Hardware/Environment**: (À compléter avec ton CPU, ex: *AMD Ryzen 7 5800X, Linux*)
-- **Rust Version**: 1.80+
-- **Command**: `cargo bench --all-features`
+Run the benchmark with:
 
-## Results (Median Times)
+```sh
+cargo bench --locked --all-features
+```
 
-| Profile | Time (µs) | Overhead vs Baseline | Notes |
-| :--- | :--- | :--- | :--- |
-| **Baseline (No Middleware)** | ~1.7 µs | - | Raw Axum routing. |
-| **Minimal** | ~21.0 µs | +19.3 µs | Core context creation, timing, and queue push. |
-| **Standard** | ~45.8 µs | +44.1 µs | Adds query parsing, header extraction, and redaction. |
-| **Detailed** | ~46.3 µs | +44.6 µs | Adds body capture and recursive JSON redaction. |
-| **Standard + Geolocation** | ~21.2 µs | +19.5 µs | Fast-fail when no IP is present (or cache hit). |
+Criterion writes estimates and raw samples under `target/criterion/`. Record the run date, commit, Rust version, operating system, CPU, and lockfile hash alongside any results used for a release decision. Do not compare numbers collected with different environments as if they were directly equivalent.
 
-## Analysis
+### Local smoke-run results
 
-1. **Queue Push is cheap**: The jump from Baseline to Minimal (~19µs) represents the cost of async telemetry, which is well within acceptable limits for high-throughput services.
-2. **Header Redaction is the main cost**: Moving from Minimal to Standard doubles the time. This is due to string allocations, case-insensitive matching, and recursive redaction of headers.
-3. **Body Capture is negligible**: Surprisingly, the Detailed profile (which parses JSON and redacts bodies) is almost identical to Standard. For small to medium payloads, the JSON parsing cost is dwarfed by the header processing overhead.
-4. **Geolocation is non-blocking**: The fast-fail mechanism when no IP is detected ensures that the feature does not degrade performance when not applicable.
+An exploratory run was completed on 2026-11-14 with Rust 1.99.1 using:
 
-## Recommendations
+```sh
+cargo bench --locked --all-features --bench middleware_overhead -- --sample-size 20
+```
 
-- Use `Minimal` for high-frequency, low-value endpoints (e.g., health checks, metrics).
-- Use `Standard` for most APIs where headers and query parameters are needed for debugging.
-- Use `Detailed` only on critical business routes (e.g., checkout, authentication) where body context is mandatory, and always enforce strict limits.
+Environment: Fedora Linux x86_64, Intel Core i7-8565U CPU @ 1.80 GHz, eight logical CPUs. `Cargo.lock` SHA-256: `93fae80d240c36b23d86e2771526ec51c127f8a31d05d930989036c8a90420dd`.
 
-```markdown
-## Load Test
+| Profile | Criterion estimate | Criterion interval | Notes |
+|---|---:|---:|---|
+| Baseline | 3.2674 µs | 2.6911–3.9972 µs | No telemetry middleware |
+| Minimal | 47.277 µs | 40.196–58.710 µs | Request lifecycle event |
+| Standard | 67.277 µs | 63.076–72.897 µs | Query/header capture and redaction |
+| Detailed | 65.461 µs | 60.891–72.621 µs | Bounded body capture and redaction |
+| Standard + geolocation | 55.860 µs | 48.495–61.743 µs | No client IP is supplied, so this measures the no-IP path, not a lookup or cache hit |
 
-The Criterion benchmarks measure per-request overhead in isolation. For end-to-end throughput, use a load generator against the example server.
+This is a short local snapshot, not a release performance guarantee. Criterion reported a regression against its locally retained comparison data. The benchmark ran with 20 samples per case on a frequency-scaled laptop CPU, so host load and power state may explain some or all of that difference. Repeat it against a clean baseline on stable, documented hardware before using it to support production claims. The earlier undocumented figures in this file have been removed.
 
-### Commands
+Do not infer throughput limits or production suitability from these isolated per-request measurements alone.
 
-```bash
-# Start the example server
-cargo run --example axum_loki --features axum,loki,geolocation,body-capture
+## End-to-end load test
 
-# In another terminal, run the load test
+The Criterion benchmark does not measure network throughput, tail latency under concurrency, exporter saturation, or process memory under sustained load. Use a load generator against the example service for those measurements.
+
+Start the example service in one terminal:
+
+```sh
+cargo run --locked --example axum_loki \
+  --features axum,loki,tracing,opentelemetry
+```
+
+In another terminal, run a 30-second load test with 50 concurrent workers (install [`oha`](https://github.com/hatoo/oha) separately):
+
+```sh
 oha -z 30s -c 50 http://127.0.0.1:3030/hello/fictitious-user
-What to observe
-Request throughput (requests per second) with and without the middleware.
+```
 
-p99 latency increase.
+Compare the baseline service to the configured profiles. Record:
 
-InternalTelemetry::snapshot(): accepted_events, dropped_events, queue_occupancy.
+- requests per second and p50/p95/p99 latency;
+- CPU and peak resident memory;
+- accepted and dropped event counts, queue occupancy, and export failures;
+- Loki response time and behavior during a controlled outage.
 
-Memory (RSS) of the example process: it must remain bounded.
-
-Note: Load tests are environment-dependent. Record the toolchain, the lockfile hash, and the hardware in the release notes.
-
-text
-
----
+Use fictitious request data. Repeat the run for the workload and payload sizes that resemble the target service. Load-test results are environment-specific and should not be presented as general crate guarantees.

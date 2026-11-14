@@ -9,7 +9,7 @@ This guide describes how to migrate between versions of `safe-http-telemetry` an
 | Crate version | Schema version | Notes |
 |---|---|---|
 | `0.1.x-dev` | `1.0` | Development releases. API not stable. |
-| `0.1.0` (candidate) | `1.0` | First release candidate. API frozen for the 0.1 line. |
+| `0.1.0-rc.1` | `1.0` | First release candidate. API frozen for the 0.1 line. |
 
 ## 2. Migrating from Development to `0.1.0`
 
@@ -23,7 +23,7 @@ The following features are stable in `0.1.0`: `axum`, `tower`, `tracing`, `opent
 The default sensitive-field list has been extended. If you were relying on a field being **not** redacted (e.g., a custom `token` field that you considered safe), explicitly remove it from `RedactionConfig::sensitive_fields` after a risk assessment.
 
 ### Geolocation
-`GeolocationConfig::bundled()` now validates the MMDB at startup. If the database is missing or corrupt, startup fails with `GeolocationError::DatabaseInvalid`. Download the database and verify its checksum before deploying.
+`GeolocationConfig::bundled()` validates the MMDB at startup. The database is bundled with the crate; if it is corrupt, startup fails with `GeolocationError::DatabaseInvalid`. Applications that override it with an external local MMDB must verify that file before deployment. See [the geolocation guide](geolocation.md) for attribution and packaging details.
 
 ### Loki exporter
 `LokiConfig::new(url)` rejects URLs with embedded credentials. Move credentials to the bearer-token or basic-auth fields.

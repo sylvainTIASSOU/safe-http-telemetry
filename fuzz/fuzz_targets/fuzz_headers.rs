@@ -8,8 +8,8 @@ use safe_http_telemetry::{
 };
 
 fuzz_target!(|data: &[u8]| {
-    // 1. Construire une map de headers à partir des bytes.
-    // On utilise un séparateur simple (par exemple, '\0' ou ':') pour créer des paires clé-valeur.
+    // 1. Build a header map from the input bytes.
+    // Use a simple separator (for example, '\0' or ':') to create key-value pairs.
     if let Ok(s) = std::str::from_utf8(data) {
         let mut headers = BTreeMap::new();
         for part in s.split('\0') {
@@ -18,7 +18,7 @@ fuzz_target!(|data: &[u8]| {
             }
         }
 
-        // 2. Créer un Redactor et appliquer la redaction.
+        // 2. Create a Redactor and apply redaction.
         let redactor = Redactor::new(
             &RedactionConfig::default(),
             &CaptureLimits::default(),

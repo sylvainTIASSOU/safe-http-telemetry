@@ -11,7 +11,7 @@ use safe_http_telemetry::{
 };
 
 fuzz_target!(|data: &[u8]| {
-    // 1. Construire une map de query parameters à partir des bytes.
+    // 1. Build a query-parameter map from the input bytes.
     if let Ok(s) = std::str::from_utf8(data) {
         let mut query = BTreeMap::new();
         for part in s.split('&') {
@@ -23,7 +23,7 @@ fuzz_target!(|data: &[u8]| {
             }
         }
 
-        // 2. Créer un Redactor et appliquer la redaction.
+        // 2. Create a Redactor and apply redaction.
         let redactor = Redactor::new(
             &RedactionConfig::default(),
             &CaptureLimits::default(),

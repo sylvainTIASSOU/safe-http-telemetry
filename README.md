@@ -1,104 +1,87 @@
 # safe-http-telemetry
 
-Safe, bounded HTTP telemetry for Axum, Tower, `tracing`, OpenTelemetry and Grafana Loki.
+Safe, bounded HTTP telemetry for Axum, Tower, `tracing`, OpenTelemetry, and Grafana Loki.
 
-> **Status:** release candidate (`0.1.0-rc.1`). The public API is frozen for the `0.1` line. Feedback on the release candidate is welcome through GitHub issues.
+> **Status:** release candidate `0.1.0-rc.1`. The public API is frozen for the `0.1` release line. Feedback is welcome through GitHub issues.
 
 ## Project decisions
 
-- Code license: MIT
-- Minimum supported Rust version: 1.85
+- License: MIT
+- Minimum supported Rust version (MSRV): **1.85.0**
 - Rust edition: 2021
-- Initial HTTP target: Axum through Tower
-- Log format: versioned JSON
-- Geolocation: bundled DB-IP City Lite database with local lookups and no synchronous external requests
+- Initial HTTP integration: Axum through Tower
+- Event format: versioned JSON
+- Geolocation: optional local DB-IP City Lite MMDB lookup; enabling it embeds the database in the application binary
 
-## Axum integration
+## Features
 
-The `axum` feature provides normalized `MatchedPath` routes, bounded event
-submission and response preservation for ordinary and streaming bodies.
-See `docs/axum.md` for layer placement, timeout handling and shutdown order.
+- Tower middleware and an Axum adapter for HTTP lifecycle events.
+- Bounded request and response capture with configurable redaction.
+- Bounded asynchronous event queue and Loki exporter.
+- Native `tracing` business-event capture and OpenTelemetry context correlation.
+- Optional local MMDB geolocation with trusted-proxy support.
+- Internal counters for queue saturation, export failures, and shutdown outcomes.
 
-- [Executable Axum examples and real-Loki end-to-end validation](examples/README.md)
+The Cargo features are opt-in; the default feature set is empty:
 
-Native `tracing` business events use the same bounded queue and redaction
-pipeline as HTTP events. OpenTelemetry correlation and Grafana navigation are
-covered in `docs/grafana-opentelemetry.md`.
+| Feature | Enables |
+|---|---|
+| `axum` | Axum middleware and normalized `MatchedPath` routes |
+| `tower` | Generic Tower HTTP middleware |
+| `tracing` | `tracing` event capture and correlation support |
+| `opentelemetry` | W3C Trace Context propagation and span correlation |
+| `body-capture` | Bounded request and response body capture |
+| `geolocation` | Local MMDB lookups and bounded cache |
+| `loki` | Asynchronous Loki exporter |
+
+See [docs/semver.md](docs/semver.md) for the compatibility policy and [docs/migration.md](docs/migration.md) for upgrade guidance.
+
+## Quick start
+
+Add only the features your application needs:
+
+```toml
+[dependencies]
+safe-http-telemetry = { version = "0.1", features = ["axum", "loki", "tracing"] }
+```
+
+For complete setup, shutdown ordering, Loki configuration, and runnable examples, see [the examples guide](examples/README.md) and [the Axum integration guide](docs/axum.md).
 
 ## Project structure
 
 - `src/config`: configuration and validation
 - `src/policy`: capture profiles and route policies
 - `src/redaction`: sensitive-data redaction
-- `src/tower_integration`: HTTP middleware
-- `src/axum_adapter`: Axum integration
-- `src/tracing_integration`: tracing and correlation
-- `src/loki`: Loki exporter
-- `src/runtime`: queues, workers and shutdown
-- `src/geolocation`: local MMDB geolocation
-- `tests`: integration tests
-- `examples`: Cargo examples and data examples
-- `benches`: benchmarks
-- `schemas`: public data schemas
-- `docs`: architecture and decision records
+- `src/tower_integration` and `src/axum_adapter`: HTTP middleware
+- `src/tracing_integration`: tracing events and context propagation
+- `src/loki` and `src/runtime`: export, queues, workers, and shutdown
+- `src/geolocation`: local MMDB lookup
+- `tests`: unit and integration coverage
+- `fuzz`: nightly fuzz targets
+- `benches`: Criterion benchmarks
+- `schemas`: versioned event schemas
+- `docs`: operational and architectural documentation
 
-The project follows the standard Cargo package layout. There is no `src/main.rs` because this package is a library.
+This repository contains a library crate; it has no `src/main.rs`.
 
-## Cargo features
+## Development and validation
 
-The following features are considered **stable** and follow the SemVer policy described in `docs/semver.md`:
+The repository toolchain is Rust 1.99.1. The crate's supported minimum is Rust 1.85.0.
 
-* `axum` — Axum middleware and `MatchedPath` integration.
-* `tower` — Generic Tower middleware and HTTP lifecycle.
-* `tracing` — `tracing` event capture and correlation.
-* `opentelemetry` — W3C Trace Context propagation and span correlation.
-* `body-capture` — Bounded request and response body capture.
-* `geolocation` — Local MMDB geolocation with bounded cache.
-* `loki` — Asynchronous Loki exporter with bounded queue.
-
-> **Note:** Adding a new feature is a minor change. Removing or renaming a feature is a major change.
-
-
-These features do not currently expose a stable API.
-
-## Development
-
-Development uses Rust 1.99.1 through `rust-toolchain.toml`.
-The minimum supported Rust version (MSRV) is 1.85.0.
-
-Run:
+Run the same core checks as CI:
 
 ```sh
+cargo fmt --all -- --check
 cargo check --locked --all-targets --all-features
 cargo test --locked --all-targets --all-features
 cargo clippy --locked --all-targets --all-features -- -D warnings
-cargo fmt --all -- --check
 cargo doc --locked --no-deps --all-features
+cargo +1.85.0 test --locked --all-targets --all-features -j 1
+cargo publish --dry-run --locked
+```
 
-
-mkdir -p data
-
-curl --fail --location \
-  "https://download.db-ip.com/free/dbip-city-lite-2026-11.mmdb.gz" \
-  --output /tmp/dbip-city-lite-2026-11.mmdb.gz
-
-gzip --test /tmp/dbip-city-lite-2026-11.mmdb.gz
-
-gzip -dc /tmp/dbip-city-lite-2026-11.mmdb.gz \
-  > data/dbip-city-lite-2026-11.mmdb
-
-printf '%s  %s\n' \
-  'a6f14e8da5565c713cdda9f1959a904b2eb88337' \
-  'data/dbip-city-lite-2026-11.mmdb' \
-  | sha1sum -c -
-
-test "$(stat -c %s data/dbip-city-lite-2026-11.mmdb)" = "126873350"
+The real-Loki end-to-end tests, fuzz targets, benchmarks, and release checklist are described in [docs/test-matrix.md](docs/test-matrix.md). The production limits and operational guidance are in [docs/production.md](docs/production.md).
 
 ## Performance
 
-We take performance seriously. The middleware is designed to be non-blocking and bounded.
-You can find the detailed benchmark results and methodology in [docs/benchmarks.md](docs/benchmarks.md).
-
-To run the benchmarks yourself:
-```bash
-cargo bench --all-features
+Benchmark methodology and the latest recorded run are documented in [docs/benchmarks.md](docs/benchmarks.md). Results depend on hardware, operating system, toolchain, and workload; record those details with any results used for release decisions.

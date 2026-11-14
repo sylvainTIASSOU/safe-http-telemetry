@@ -75,12 +75,12 @@ Use `RoutePolicy` to disable body capture entirely on authentication and passwor
 ## 4. Geolocation
 
 ### Database
-`safe-http-telemetry` uses a **bundled DB-IP City Lite** MMDB database by default. The database is **not** included in the crate; it is downloaded separately and loaded from a local path.
+The optional `geolocation` feature uses the **bundled DB-IP City Lite** MMDB database. The database is included in the crate source and embedded into applications that enable geolocation. The feature is opt-in; applications that do not enable it do not embed the database.
 
 **Production checklist**:
-- [ ] Download the latest DB-IP City Lite database monthly.
-- [ ] Verify the SHA-1 checksum before loading.
-- [ ] Set `GeolocationConfig::path` to the local file.
+- [ ] Keep the bundled DB-IP database current and review its attribution and license.
+- [ ] If using an external MMDB, verify its origin and integrity before loading it.
+- [ ] Set `GeolocationConfig::new(path)` only when overriding the bundled database.
 - [ ] Keep `GeolocationConfig::cache_capacity` and `cache_ttl` bounded.
 - [ ] If you do not need city-level precision, enable `country_only` to reduce collected fields.
 
