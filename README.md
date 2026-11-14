@@ -91,7 +91,7 @@ The [capture policy guide](docs/policies.md) describes the three profiles. The [
 
 ## Documentation and support
 
-The [project wiki draft](wiki/Home.md) tracks current status, roadmap, integration, architecture, and operations.
+The [project wiki](https://github.com/sylvainTIASSOU/safe-http-telemetry/wiki) tracks current status, roadmap, integration, architecture, and operations.
 
 | Guide | Covers |
 | --- | --- |
