@@ -1,10 +1,5 @@
 #![forbid(unsafe_code)]
-
-//! Safe, bounded HTTP telemetry for Axum, `tracing`, OpenTelemetry and Loki.
-//!
-//! The Tower middleware provides bounded HTTP lifecycle events, including
-//! ordinary responses, streaming, errors, timeouts and cancellation. The
-//! optional Axum adapter adds normalized matched-route integration.
+#![doc = include_str!("../docs/rustdoc.md")]
 
 #[cfg(feature = "axum")]
 pub mod axum_adapter;

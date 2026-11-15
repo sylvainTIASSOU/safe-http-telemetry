@@ -40,6 +40,10 @@ pub struct LokiExporter {
 }
 
 impl LokiExporter {
+    /// Validates configuration and prepares a fixed number of export workers.
+    ///
+    /// This does not start tasks or send network requests. Call [`start`](Self::start)
+    /// from within a Tokio runtime to start exporting.
     pub fn new(
         config: LokiConfig,
         service: ServiceConfig,
@@ -131,6 +135,7 @@ pub struct LokiExporterHandle {
 }
 
 impl LokiExporterHandle {
+    /// Returns the number of active exporter workers configured at startup.
     pub fn worker_count(&self) -> usize {
         self.workers.len()
     }

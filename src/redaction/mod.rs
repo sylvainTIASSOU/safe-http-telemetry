@@ -23,7 +23,9 @@ pub const PARSE_ERROR: &str = "[PARSE_ERROR]";
 /// Counts produced by one redaction operation.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct RedactionReport {
+    /// Number of values replaced with a redaction marker.
     pub redacted_values: u64,
+    /// Number of values shortened to satisfy a configured byte limit.
     pub truncated_values: u64,
 }
 

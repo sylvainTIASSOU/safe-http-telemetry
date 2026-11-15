@@ -51,6 +51,11 @@ pub enum RoutePattern {
 }
 
 impl RoutePattern {
+    /// Creates a matcher for one exact route path, such as `/health`.
+    ///
+    /// The path must start with `/` and must not contain a query, fragment,
+    /// wildcard, or whitespace. Invalid patterns are reported by
+    /// [`RoutePolicySet::add_policy`].
     pub fn exact(path: impl Into<String>) -> Self {
         Self::Exact(path.into())
     }
@@ -107,7 +112,10 @@ impl RoutePattern {
     }
 }
 
-/// A capture palicy attached to a route selector
+/// A capture policy attached to a route selector.
+///
+/// Policies can reduce capture or exclude a matching route. They cannot
+/// enable data that the selected [`CaptureProfile`] disallows.
 #[derive(Debug, Clone)]
 pub struct RoutePolicy {
     pub pattern: RoutePattern,
@@ -122,6 +130,7 @@ pub struct RoutePolicy {
 }
 
 impl RoutePolicy {
+    /// Creates a policy for a route pattern and maximum capture profile.
     pub fn new(pattern: RoutePattern, profile: CaptureProfile) -> Self {
         Self {
             pattern,
@@ -164,15 +173,15 @@ impl RoutePolicy {
 
     /// Restricts query-parameter capture for matching requests.
     ///
-    /// `True` never elevates the minimal profils.
+    /// `true` never elevates the minimal profile.
     pub fn with_query_capture(mut self, capture: bool) -> Self {
         self.capture_query = Some(capture);
         self
     }
 
-    /// Restricts request and response header capture independently
+    /// Restricts request and response header capture independently.
     ///
-    /// `true` never elevates the minimal profile
+    /// `true` never elevates the minimal profile.
     pub fn with_header_capture(mut self, request: bool, response: bool) -> Self {
         self.capture_request_headers = Some(request);
         self.capture_response_headers = Some(response);
@@ -251,6 +260,7 @@ pub struct RoutePolicySet {
 }
 
 impl RoutePolicySet {
+    /// Creates an empty policy set with a default capture profile.
     pub fn new(default_profile: CaptureProfile) -> Self {
         Self {
             default_profile,
@@ -262,6 +272,11 @@ impl RoutePolicySet {
     ///
     /// Duplicate selectors are rejected instead of depending on insertion
     /// order. Matching is case-insensitive for HTTP methods.
+    /// Adds and validates a policy.
+    ///
+    /// Rules with the same route and method selector are rejected. Resolution
+    /// is independent of insertion order; exact and more specific selectors
+    /// take precedence.
     pub fn add_policy(&mut self, policy: RoutePolicy) -> Result<(), PolicyError> {
         policy.validate()?;
 
@@ -278,6 +293,7 @@ impl RoutePolicySet {
     }
 
     /// Resolves the effective policy without using insertion order.
+    /// Resolves the effective capture decision for a method and route path.
     pub fn resolve(&self, method: &str, path: &str) -> PolicyDecision {
         let best_specificity = self
             .policies

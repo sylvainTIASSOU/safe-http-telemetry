@@ -107,6 +107,8 @@ The pull-request and push workflow runs:
 - `python3 -m unittest discover -s scripts -p 'test_*.py'`
 - `cargo publish --dry-run --locked --all-features`, then `cargo package --locked --no-verify` with archive size and contents checked
 
+Stable CI, MSRV, semver, and package jobs use `Swatinem/rust-cache` to reuse Cargo registry data and compiled dependency artifacts across runs. Each CI job keeps its own cache; the sequential release verification and publish jobs share one cache. Keys include the Rust toolchain and Cargo manifests/lockfile, so changing either may require a fresh cache. Caches speed up dependency work but do not preserve the GitHub-hosted runner or its operating-system state. The nightly fuzz job separately caches its corpus; nightly compiler changes make compiled-artifact cache reuse less predictable.
+
 The real-Loki tests and fuzzing are not part of that pull-request workflow.
 
 ## Release verification snapshot (2026-11-14)
@@ -117,7 +119,7 @@ The maintainer reports that every job is green for the released `0.1.0` commit i
 - A prior detailed CI run reported 37 targets, 197 passed, 0 failed, and 3 ignored on stable and Rust 1.85.0. The ignored tests are one external-MMDB lookup requiring `SAFE_HTTP_TEST_MMDB` and two real-Loki tests in `loki_http_e2e`; the real-Loki tests have since been run separately and passed.
 - The published package contains 107 files: 623.1 KiB unpacked and 151.0 KiB compressed. The production database directory is excluded; the licensed synthetic fixture and dependency license inventory are included. The first upload attempt was rejected because `network-programming::protocols::http` is unsupported; the manifest was corrected to the supported `network-programming` category before the successful upload.
 - `cargo-semver-checks` exited successfully using Git baseline `e6da66939fe103b07f890e832ca2ba0701e5e32f`. It classified `0.1.0-rc.1` → `0.1.0` as a major change and skipped all 260 individual lints (0 checked). This is expected for the first stable publication, which has no released API to preserve; it is not evidence that 260 API checks passed. Subsequent releases should compare against the previous stable API.
-- GitHub reported a non-blocking Node 20 deprecation notice for `actions/checkout@v4`. The CI run still passed; update the action runtime separately to remove the notice.
+- The recorded run used `actions/checkout@v4` and reported a non-blocking Node 20 deprecation notice. Current workflows use `actions/checkout@v7`.
 - All three fuzz targets built and completed 30-second campaigns without a finding. This sandbox cannot run LeakSanitizer under its ptrace restrictions, so the campaigns used `ASAN_OPTIONS=detect_leaks=0`; AddressSanitizer checks remained active. An initial `crash-*` artifact was reproduced as this LeakSanitizer environment failure and was not a code crash.
 - The maintainer reran the ignored real-Loki end-to-end tests against the documented Compose stack after the raw-path policy change: 2 passed, 0 failed (minimal event export and detailed event redaction/export).
 - A 50-sample Criterion run was recorded on the documented host with a new named baseline. CPU scaling was enabled and some profiles had outliers; use the results as a host-specific release snapshot, not as a general performance guarantee. Details are in [benchmarks.md](benchmarks.md).

@@ -16,6 +16,7 @@ pub struct InternalTelemetry {
 }
 
 impl InternalTelemetry {
+    /// Creates a fresh set of shared, low-cardinality counters.
     pub fn new() -> Self {
         Self::default()
     }

@@ -12,11 +12,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
+
+      - name: Cache Cargo dependencies and build artifacts
+        uses: Swatinem/rust-cache@v2
 
       - run: python3 -m unittest discover -s scripts -p 'test_*.py'
       - run: cargo fmt --all -- --check
@@ -31,11 +34,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.85.0
+
+      - name: Cache Cargo dependencies and build artifacts
+        uses: Swatinem/rust-cache@v2
 
       - run: cargo check --locked --all-targets --all-features
       - run: cargo test --locked --all-targets --all-features
@@ -44,12 +50,17 @@ jobs:
   semver-checks:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
+      - name: Cache Cargo dependencies and build artifacts
+        uses: Swatinem/rust-cache@v2
       - name: Install cargo-semver-checks
-        run: cargo install cargo-semver-checks --locked
+        run: |
+          if ! cargo-semver-checks --version 2>/dev/null | grep -q '0.51.0'; then
+            cargo install cargo-semver-checks --locked --version 0.51.0 --force
+          fi
       - name: Check API against the prior Git revision
         env:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -67,8 +78,10 @@ jobs:
   publish-dry-run:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
+      - name: Cache Cargo dependencies and build artifacts
+        uses: Swatinem/rust-cache@v2
       - run: cargo publish --dry-run --locked --all-features
       - run: cargo package --locked --no-verify
       - name: Enforce package size and database exclusions

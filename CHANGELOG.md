@@ -5,7 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.0] - Unreleased
+## [0.1.1] - Unreleased
+
+### Fixed
+- Relaxed runtime dependency requirements to caret constraints so compatible versions can be unified with host applications, including newer Tokio 1.x releases.
+
+### Changed
+- Added a tag-triggered crates.io release workflow using crates.io trusted publishing.
+- Expanded the README with the project goals, problem statement, feature summary, integration guide, future exploration areas, and Loki screenshots.
+- Added a crate-level rustdoc guide and clarified key configuration, policy, queue, and exporter APIs.
+- Added shared Cargo dependency/build-artifact caching to stable CI and release jobs.
+
+## [0.1.0] - 2026-11-14
 
 ### Added
 - Tower middleware and Axum adapter for HTTP lifecycle observation.

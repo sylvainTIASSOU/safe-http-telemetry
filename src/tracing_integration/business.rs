@@ -63,6 +63,11 @@ pub struct BusinessLogLayer {
 }
 
 impl BusinessLogLayer {
+    /// Creates a layer that redacts application events and sends them to the queue.
+    ///
+    /// Install a subscriber filter before this layer to limit which targets and
+    /// levels are accepted. Events emitted by this crate's own internal target
+    /// are ignored to prevent recursive telemetry.
     pub fn new(
         queue: BoundedEventQueue,
         redactor: Redactor,

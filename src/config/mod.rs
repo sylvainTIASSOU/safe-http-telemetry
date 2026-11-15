@@ -15,9 +15,13 @@ const MIN_MARKER_BYTES: usize = 11;
 /// Identifies the service that produces telemetry events.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServiceConfig {
+    /// Stable service name attached to exported events.
     pub name: String,
+    /// Deployment environment, such as `production` or `staging`.
     pub environment: String,
+    /// Application release version.
     pub version: String,
+    /// Optional deployment region or zone.
     pub region: Option<String>,
 }
 
@@ -35,16 +39,27 @@ impl Default for ServiceConfig {
 /// Hard limits applied before telemetry data is queued or exported.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CaptureLimits {
+    /// Maximum request-body prefix inspected when body capture is enabled.
     pub max_request_body_bytes: usize,
+    /// Maximum response-body prefix inspected when body capture is enabled.
     pub max_response_body_bytes: usize,
+    /// Maximum bytes retained from any one header value.
     pub max_header_value_bytes: usize,
+    /// Maximum combined bytes retained from captured headers.
     pub max_total_header_bytes: usize,
+    /// Maximum number of captured headers.
     pub max_headers: usize,
+    /// Maximum number of captured query parameters.
     pub max_query_parameters: usize,
+    /// Maximum nesting depth for parsed JSON values; the root is depth zero.
     pub max_json_depth: usize,
+    /// Maximum number of JSON nodes traversed during parsing and redaction.
     pub max_json_nodes: usize,
+    /// Maximum bytes retained for one string value.
     pub max_string_bytes: usize,
+    /// Maximum serialized size of an individual telemetry event.
     pub max_event_bytes: usize,
+    /// Maximum serialized size of one Loki batch payload.
     pub max_loki_batch_bytes: usize,
 }
 
@@ -153,6 +168,7 @@ impl Default for RedactionConfig {
 }
 
 impl RedactionConfig {
+    /// Validates that configured sensitive field names are non-empty.
     pub fn validate(&self) -> Result<(), ConfigError> {
         if self.sensitive_fields.iter().any(|field| {
             field.trim().is_empty() || !field.chars().any(|character| character.is_alphanumeric())
@@ -167,8 +183,11 @@ impl RedactionConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct TelemetryConfig {
+    /// Service identity attached to events.
     pub service: ServiceConfig,
+    /// Hard upper bounds for captured and serialized data.
     pub limits: CaptureLimits,
+    /// Sensitive field names applied by the redaction engine.
     pub redaction: RedactionConfig,
 }
 

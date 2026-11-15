@@ -116,7 +116,7 @@ Use the [complete Rust source](axum_loki.rs) as the wiring reference. Its HTTP h
 
 ```toml
 [dependencies]
-safe-http-telemetry = { version = "0.1.0", features = ["axum", "loki", "tracing", "opentelemetry", "body-capture"] }
+safe-http-telemetry = { version = "0.1.1", features = ["axum", "loki", "tracing", "opentelemetry", "body-capture"] }
 axum = "0.8"
 tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal"] }
 serde = { version = "1", features = ["derive"] }
@@ -127,4 +127,4 @@ opentelemetry_sdk = "0.33"
 tracing-opentelemetry = "0.34"
 ```
 
-Until this crate is published, use `path = "/path/to/safe-http-telemetry"` instead of the version requirement. For a minimal setup, follow [minimal_axum.rs](minimal_axum.rs) and add `serde_json = "1"` for its JSON printer. Your deployed service should export events to a durable sink, apply its own authentication and proxy policy, expose operational counters to its metrics system, and configure a real OpenTelemetry span exporter if distributed traces are required.
+Until `0.1.1` is published, use `path = "/path/to/safe-http-telemetry"` instead of the version requirement. For a minimal setup, follow [minimal_axum.rs](minimal_axum.rs) and add `serde_json = "1"` for its JSON printer. Your deployed service should export events to a durable sink, apply its own authentication and proxy policy, expose operational counters to its metrics system, and configure a real OpenTelemetry span exporter if distributed traces are required.

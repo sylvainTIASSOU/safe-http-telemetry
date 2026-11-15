@@ -24,7 +24,7 @@ impl fmt::Debug for SecretValue {
     }
 }
 
-/// Authentication applied by the future Loki HTTP client
+/// Authentication applied by the Loki HTTP client.
 #[derive(Clone, Debug)]
 pub enum LokiAuth {
     Bearer(SecretValue),
@@ -33,8 +33,11 @@ pub enum LokiAuth {
 /// Limits controlling when a batch must be flushed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BatchConfig {
+    /// Maximum number of events in one batch.
     pub max_events: usize,
+    /// Maximum serialized payload size in bytes for one batch.
     pub max_bytes: usize,
+    /// Maximum time a non-empty batch waits before it is flushed.
     pub flush_interval: Duration,
 }
 
@@ -54,7 +57,9 @@ pub struct RetryConfig {
     /// Number of retries after the initial request.
     ///  Zero disables retries without creating an unbounded loop.
     pub max_retries: u32,
+    /// Delay before the first retry.
     pub initial_backoff: Duration,
+    /// Upper bound for the retry delay.
     pub max_backoff: Duration,
 }
 
@@ -92,15 +97,26 @@ pub struct LokiConfig {
     /// Full push URL, or example:
     /// `http://localhost:3100/loki/api/v1/push`.
     pub push_url: Url,
+    /// Optional Loki tenant identifier sent as `X-Scope-OrgID`.
     pub tenant_id: Option<String>,
+    /// Optional authentication for the push endpoint.
     pub auth: Option<LokiAuth>,
+    /// Maximum event count and payload bytes per batch, plus flush interval.
     pub batch: BatchConfig,
+    /// Timeout for each HTTP push request.
     pub request_timeout: Duration,
+    /// Retry count and bounded exponential backoff.
     pub retry: RetryConfig,
+    /// Drain behavior and deadline used by the exporter handle.
     pub shutdown: ShutdownConfig,
 }
 
 impl LokiConfig {
+    /// Parses and validates a Loki push URL.
+    ///
+    /// The URL must use HTTP or HTTPS and must not contain credentials, a
+    /// query, or a fragment. Credentials should be set with
+    /// [`LokiConfig::with_bearer_token`] instead.
     pub fn new(push_url: impl AsRef<str>) -> Result<Self, LokiConfigError> {
         let push_url = Url::parse(push_url.as_ref()).map_err(|_| LokiConfigError::InvalidUrl)?;
 
@@ -117,11 +133,13 @@ impl LokiConfig {
         Ok(config)
     }
 
+    /// Sets the tenant identifier sent with each push request.
     pub fn with_tenant_id(mut self, tenant_id: impl Into<String>) -> Self {
         self.tenant_id = Some(tenant_id.into());
         self
     }
 
+    /// Sets a bearer token without exposing it in the configuration's `Debug` output.
     pub fn with_bearer_token(mut self, token: impl Into<String>) -> Self {
         self.auth = Some(LokiAuth::Bearer(SecretValue::new(token)));
         self

@@ -26,6 +26,10 @@ pub struct QueueConfig {
 }
 
 impl QueueConfig {
+    /// Creates a queue configuration with the requested capacity.
+    ///
+    /// A capacity of zero is rejected by [`BoundedEventQueue::new`]. The
+    /// saturation policy defaults to [`SaturationPolicy::DropNewest`].
     pub const fn new(capacity: usize) -> Self {
         Self {
             capacity,
@@ -163,6 +167,7 @@ impl BoundedEventQueue {
         self.sender.close()
     }
 
+    /// Returns whether the queue has been closed to new events.
     pub fn is_closed(&self) -> bool {
         self.sender.is_closed()
     }
